@@ -796,10 +796,6 @@ body {
   </div>
 </div>
 
-<!-- 사용자 뱃지 -->
-<div id="userBadge" style="position:fixed;top:50%;left:220px;transform:translateY(-50%);z-index:999;background:rgba(255,255,255,0.85);backdrop-filter:blur(8px);border-radius:20px;padding:6px 14px;font-family:'Gowun Dodum',sans-serif;font-size:0.85rem;color:#1a3a4a;box-shadow:0 4px 12px rgba(61,214,181,0.2);cursor:pointer;" onclick="logoutUser()">
-  🐟 <span id="userNameDisplay">로그인 중</span> · 로그아웃
-</div>
 <!-- 배경 버블 -->
 <div class="bg-bubbles" id="bgBubbles"></div>
 
@@ -820,12 +816,16 @@ body {
   <!-- 탑바 -->
   <!-- 배경음악 -->
 <audio id="bgMusic" loop>
- <source src="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3" type="audio/mpeg">
+  <source src="음원.mp4" type="video/mp4">
+  <source src="음원.mp4" type="audio/mp4">
 </audio>
 
 <header class="topbar">
     <div class="topbar-fish">🐟</div>
     <div class="logo">내마음의 <span>쿠쿠</span></div>
+    <div id="userBadge" style="display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,0.85);backdrop-filter:blur(8px);border-radius:20px;padding:6px 14px;font-family:'Gowun Dodum',sans-serif;font-size:0.85rem;color:#1a3a4a;box-shadow:0 4px 12px rgba(61,214,181,0.2);cursor:pointer;margin-left:auto;" onclick="logoutUser()">
+      🐟 <span id="userNameDisplay">로그인 중</span> · 로그아웃
+    </div>
     <div class="topbar-right">
       <button id="musicBtn" onclick="toggleMusic()" style="background:rgba(255,255,255,0.6);border:1.5px solid rgba(61,214,181,0.3);border-radius:20px;padding:6px 14px;font-size:0.85rem;cursor:pointer;color:var(--emerald-deep);transition:all 0.2s;" title="배경음악 켜기/끄기">
   🎵 음악 OFF
@@ -1700,60 +1700,6 @@ async function gasRequest(payload) {
     showToast('서버 연결 실패 😢 인터넷을 확인해봐요!');
     return { success: false, message: '서버 연결 실패' };
   }
-}
-async function gasRequest(payload) {
-  try {
-    const getRes = await fetch(GAS_URL + '?data=' + encodeURIComponent(JSON.stringify(payload)));
-    return await getRes.json();
-  } catch(e) {
-    showToast('서버 연결 실패 😢 인터넷을 확인해봐요!');
-    return { success: false, message: '서버 연결 실패' };
-  }
-}
-  } catch(e) {
-    showToast('서버 연결 실패 😢 인터넷을 확인해봐요!');
-    return { success: false, message: '서버 연결 실패' };
-  }
-}
-// ── 로그인 ──
-async function loginUser() {
-  const email = document.getElementById('loginEmail').value.trim();
-  const btn = document.getElementById('loginBtn');
-  if (!email) { showToast('이메일을 입력해줘! 🐚'); return; }
-
-  btn.textContent = '확인 중...🌊';
-  const result = await gasRequest({ action: 'login', email });
-  btn.textContent = '바다 속으로 🐟';
-
-  if (!result.success) { showToast(result.message); return; }
-
-  if (result.isNew) {
-    document.getElementById('loginOverlay').style.display = 'none';
-    document.getElementById('nicknameOverlay').style.display = 'flex';
-  } else {
-    currentUser = { email: result.email, nickname: result.nickname };
-    localStorage.setItem('kukku_user', JSON.stringify(currentUser));
-    document.getElementById('loginOverlay').style.display = 'none';
-    document.getElementById('userNameDisplay').textContent = result.nickname;
-    await syncFromServer();
-    showToast(result.nickname + ', 쿠쿠가 기다렸어! 🐟');
-  }
-
-// ── 닉네임 등록 (첫 로그인) ──
-async function registerNickname() {
-  const nickname = document.getElementById('nicknameInput').value.trim();
-  const email = JSON.parse(localStorage.getItem('kukku_pending_email') || 'null')
-    || document.getElementById('loginEmail').value.trim();
-  if (!nickname) { showToast('닉네임을 입력해줘! 🐚'); return; }
-
-  const result = await gasRequest({ action: 'registerNickname', email, nickname });
-  if (!result.success) { showToast(result.message); return; }
-
-  currentUser = { email, nickname };
-  localStorage.setItem('kukku_user', JSON.stringify(currentUser));
-  document.getElementById('nicknameOverlay').style.display = 'none';
-  document.getElementById('userNameDisplay').textContent = nickname;
-  showToast('어서와! 쿠쿠랑 같이 기록하자 🌊');
 }
 
 // ── 서버에서 기록 불러오기 ──
@@ -3018,9 +2964,7 @@ ${summary}
       <span style="font-size:0.78rem;color:#5a6a9a;">🌟 이번 달 나의 성장</span><br>
       <span style="font-family:var(--font-title);font-size:1rem;color:#3a4a8a;">${aiStory?.growth || '나는 내 마음을 들여다볼 수 있는 사람이에요.'}</span>
     </div>
-    <div style="margin-top:20px;">
-      <img src="${kuku}" style="width:80px;height:80px;object-fit:contain;opacity:0.9;" alt="쿠쿠">
-    </div>
+    <div style="margin-top:20px;font-size:5rem;">🐟</div>
   </div>`;
 
   pbContent.innerHTML = html2;
