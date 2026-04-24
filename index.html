@@ -765,6 +765,63 @@ body {
   .quick-stats { grid-template-columns: repeat(3, 1fr); }
 }
 </style>
+<script>
+// ==========================================
+// 🌊 GAS 연결 + 로그인 (head에서 먼저 로드)
+// ==========================================
+const GAS_URL = 'https://script.google.com/macros/s/AKfycbz8V0Cxf8S8uaxRXheEqAMBtIAhxMI-S1A2sfkHJED9pU4gNqAEmwex9e4wsI2t3aM/exec';
+let currentUser = JSON.parse(localStorage.getItem('kukku_user') || 'null');
+
+async function gasRequest(payload) {
+  try {
+    const res = await fetch(GAS_URL + '?data=' + encodeURIComponent(JSON.stringify(payload)));
+    return await res.json();
+  } catch(e) {
+    return { success: false, message: '서버 연결 실패 😢' };
+  }
+}
+
+async function loginUser() {
+  const email = document.getElementById('loginEmail').value.trim();
+  const btn = document.getElementById('loginBtn');
+  if (!email) { alert('이메일을 입력해줘! 🐚'); return; }
+  btn.textContent = '확인 중...🌊';
+  const result = await gasRequest({ action: 'login', email });
+  btn.textContent = '바다 속으로 🐟';
+  if (!result.success) { alert(result.message); return; }
+  if (result.isNew) {
+    document.getElementById('loginOverlay').style.display = 'none';
+    document.getElementById('nicknameOverlay').style.display = 'flex';
+  } else {
+    currentUser = { email: result.email, nickname: result.nickname };
+    localStorage.setItem('kukku_user', JSON.stringify(currentUser));
+    document.getElementById('loginOverlay').style.display = 'none';
+    document.getElementById('userNameDisplay').textContent = result.nickname;
+    if (typeof syncFromServer === 'function') await syncFromServer();
+    if (typeof showToast === 'function') showToast(result.nickname + ', 쿠쿠가 기다렸어! 🐟');
+  }
+}
+
+async function registerNickname() {
+  const nickname = document.getElementById('nicknameInput').value.trim();
+  const email = currentUser?.email || document.getElementById('loginEmail').value.trim();
+  if (!nickname) { alert('닉네임을 입력해줘! 🐚'); return; }
+  const result = await gasRequest({ action: 'registerNickname', email, nickname });
+  if (!result.success) { alert(result.message); return; }
+  currentUser = { email, nickname };
+  localStorage.setItem('kukku_user', JSON.stringify(currentUser));
+  document.getElementById('nicknameOverlay').style.display = 'none';
+  document.getElementById('userNameDisplay').textContent = nickname;
+  if (typeof showToast === 'function') showToast('어서와! 쿠쿠랑 같이 기록하자 🌊');
+}
+
+function logoutUser() {
+  if (!confirm('로그아웃할까요? 🌊')) return;
+  localStorage.removeItem('kukku_user');
+  currentUser = null;
+  document.getElementById('loginOverlay').style.display = 'flex';
+}
+</script>
 </head>
 <body>
 <!-- 로그인 오버레이 -->
@@ -816,8 +873,7 @@ body {
   <!-- 탑바 -->
   <!-- 배경음악 -->
 <audio id="bgMusic" loop>
-  <source src="음원.mp4" type="video/mp4">
-  <source src="음원.mp4" type="audio/mp4">
+  <source src="https://drive.google.com/uc?export=download&id=1YyRBcpD5S50fSk5fXuqi_9nBwMybH6cY" type="audio/mp4">
 </audio>
 
 <header class="topbar">
@@ -1685,23 +1741,6 @@ function toggleMusic() {
     btn.style.borderColor = 'rgba(61,214,181,0.3)';
   }
 }
-// ==========================================
-// 🌊 GAS 서버 연결 모듈
-// ==========================================
-const GAS_URL = 'https://script.google.com/macros/s/AKfycbz8V0Cxf8S8uaxRXheEqAMBtIAhxMI-S1A2sfkHJED9pU4gNqAEmwex9e4wsI2t3aM/exec';
-
-let currentUser = JSON.parse(localStorage.getItem('kukku_user') || 'null');
-
-async function gasRequest(payload) {
-  try {
-    const getRes = await fetch(GAS_URL + '?data=' + encodeURIComponent(JSON.stringify(payload)));
-    return await getRes.json();
-  } catch(e) {
-    showToast('서버 연결 실패 😢 인터넷을 확인해봐요!');
-    return { success: false, message: '서버 연결 실패' };
-  }
-}
-
 // ── 서버에서 기록 불러오기 ──
 async function syncFromServer() {
   if (!currentUser) return;
@@ -1743,15 +1782,7 @@ async function syncFromServer() {
     document.getElementById('nav-dashboard').style.display = 'block';
   }
 }
-
-// ── 로그아웃 ──
-function logoutUser() {
-  if (!confirm('로그아웃할까요? 🌊')) return;
-  localStorage.removeItem('kukku_user');
-  currentUser = null;
-  document.getElementById('loginOverlay').style.display = 'flex';
-}
-window.onload = () => {
+window.onload = async () => {
   initBubbles();
   initRecord();
   initColorWells();
@@ -1764,6 +1795,13 @@ window.onload = () => {
   document.getElementById('recordDate').value = new Date().toISOString().split('T')[0];
   showPage('home');
   updatePageNav();
+
+  // 자동 로그인 체크
+  if (currentUser) {
+    document.getElementById('loginOverlay').style.display = 'none';
+    document.getElementById('userNameDisplay').textContent = currentUser.nickname || '';
+    await syncFromServer();
+  }
 };
 
 function saveDiary() {
@@ -2879,7 +2917,7 @@ ${summary}
 
   pbLoading.style.display = 'none';
 
- const kuku = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><ellipse cx="50" cy="55" rx="38" ry="32" fill="%23A0DEF0"/><ellipse cx="50" cy="52" rx="30" ry="25" fill="%23B8E8F5"/><circle cx="38" cy="48" r="6" fill="white"/><circle cx="62" cy="48" r="6" fill="white"/><circle cx="39" cy="48" r="3" fill="%23334"/><circle cx="63" cy="48" r="3" fill="%23334"/><ellipse cx="50" cy="70" rx="15" ry="6" fill="%2380C8E0"/></svg>'`;
+ const kuku = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><ellipse cx="50" cy="55" rx="38" ry="32" fill="%23A0DEF0"/><ellipse cx="50" cy="52" rx="30" ry="25" fill="%23B8E8F5"/><circle cx="38" cy="48" r="6" fill="white"/><circle cx="62" cy="48" r="6" fill="white"/><circle cx="39" cy="48" r="3" fill="%23334"/><circle cx="63" cy="48" r="3" fill="%23334"/><ellipse cx="50" cy="70" rx="15" ry="6" fill="%2380C8E0"/></svg>';
   const months2 = ['1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월'];
 
   // 커버 페이지
