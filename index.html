@@ -1734,12 +1734,6 @@ async function loginUser() {
     await syncFromServer();
     showToast(result.nickname + ', 쿠쿠가 기다렸어! 🐟');
   }
-// 관리자면 대시보드 메뉴 보이기
-  const result2 = await gasRequest({ action: 'getDashboard', email: currentUser.email });
-  if (result2.success) {
-    document.getElementById('nav-dashboard').style.display = 'block';
-  }
-}
 
 // ── 닉네임 등록 (첫 로그인) ──
 async function registerNickname() {
@@ -1789,9 +1783,15 @@ async function syncFromServer() {
     stamps = stampResult.totalStamps || 0;
     localStorage.setItem('kukku_stamps', stamps);
   }
-  updateStats();
+ updateStats();
   renderMandala();
   renderCalendar();
+
+  // 관리자면 대시보드 메뉴 보이기
+  const dashCheck = await gasRequest({ action: 'getDashboard', email: currentUser.email });
+  if (dashCheck.success) {
+    document.getElementById('nav-dashboard').style.display = 'block';
+  }
 }
 
 // ── 로그아웃 ──
