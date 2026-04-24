@@ -1696,15 +1696,21 @@ async function gasRequest(payload) {
   try {
     const res = await fetch(GAS_URL, {
       method: 'POST',
+      mode: 'no-cors',
+      headers: { 'Content-Type': 'text/plain' },
       body: JSON.stringify(payload)
     });
-    return await res.json();
+
+    // no-cors 모드에서는 응답을 직접 못 읽어서
+    // 대신 GET 방식으로 결과를 받아요
+    const getRes = await fetch(GAS_URL + '?data=' + encodeURIComponent(JSON.stringify(payload)));
+    return await getRes.json();
+
   } catch(e) {
     showToast('서버 연결 실패 😢 인터넷을 확인해봐요!');
     return { success: false, message: '서버 연결 실패' };
   }
 }
-
 // ── 로그인 ──
 async function loginUser() {
   const email = document.getElementById('loginEmail').value.trim();
