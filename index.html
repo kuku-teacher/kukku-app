@@ -797,7 +797,7 @@ body {
 </div>
 
 <!-- 사용자 뱃지 -->
-<div id="userBadge" style="position:fixed;top:16px;right:16px;z-index:999;background:rgba(255,255,255,0.85);backdrop-filter:blur(8px);border-radius:20px;padding:6px 14px;font-family:'Gowun Dodum',sans-serif;font-size:0.85rem;color:#1a3a4a;box-shadow:0 4px 12px rgba(61,214,181,0.2);cursor:pointer;" onclick="logoutUser()">
+<div id="userBadge" style="position:fixed;top:50%;left:220px;transform:translateY(-50%);z-index:999;background:rgba(255,255,255,0.85);backdrop-filter:blur(8px);border-radius:20px;padding:6px 14px;font-family:'Gowun Dodum',sans-serif;font-size:0.85rem;color:#1a3a4a;box-shadow:0 4px 12px rgba(61,214,181,0.2);cursor:pointer;" onclick="logoutUser()">
   🐟 <span id="userNameDisplay">로그인 중</span> · 로그아웃
 </div>
 <!-- 배경 버블 -->
@@ -820,7 +820,7 @@ body {
   <!-- 탑바 -->
   <!-- 배경음악 -->
 <audio id="bgMusic" loop>
-  <source src="https://cdn.pixabay.com/audio/2022/10/16/audio_4f09696be8.mp3" type="audio/mpeg">
+ <source src="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3" type="audio/mpeg">
 </audio>
 
 <header class="topbar">
@@ -858,8 +858,8 @@ body {
     </div>
     <div class="nav-item" onclick="showPage('shop')" id="nav-shop">
       <span class="nav-icon">🏪</span> 산호초 상점
-<div class="nav-item" id="nav-dashboard" onclick="openDashboard()">
-  📊 선생님 대시보드
+<div class="nav-item" id="nav-dashboard" onclick="openDashboard()" style="display:none;">
+📊 선생님 대시보드
 </div>
     </div>
     <div class="nav-item" onclick="showPage('picturebook')" id="nav-picturebook">
@@ -1733,6 +1733,11 @@ async function loginUser() {
     document.getElementById('userNameDisplay').textContent = result.nickname;
     await syncFromServer();
     showToast(result.nickname + ', 쿠쿠가 기다렸어! 🐟');
+  }
+// 관리자면 대시보드 메뉴 보이기
+  const result2 = await gasRequest({ action: 'getDashboard', email: currentUser.email });
+  if (result2.success) {
+    document.getElementById('nav-dashboard').style.display = 'block';
   }
 }
 
@@ -2881,6 +2886,7 @@ async function renderPicturebook() {
     `${r.date}: ${r.emotion?.label||'?'} / 색="${r.colorName||'?'}" / 온도=${r.temp||'?'}°C / "${r.answer||''}"`
   ).join('\n');
 
+
   let aiStory = '';
   try {
     const prompt = `당신은 따뜻한 어린이 그림책 작가예요. 중학생의 한 달 감정 일기를 보고 아이가 자신을 이해할 수 있도록 그림책 형식의 이야기를 써주세요.
@@ -2923,7 +2929,7 @@ ${summary}
 
   pbLoading.style.display = 'none';
 
-  const kuku = '{kuku_src}';
+ const kuku = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><ellipse cx="50" cy="55" rx="38" ry="32" fill="%23A0DEF0"/><ellipse cx="50" cy="52" rx="30" ry="25" fill="%23B8E8F5"/><circle cx="38" cy="48" r="6" fill="white"/><circle cx="62" cy="48" r="6" fill="white"/><circle cx="39" cy="48" r="3" fill="%23334"/><circle cx="63" cy="48" r="3" fill="%23334"/><ellipse cx="50" cy="70" rx="15" ry="6" fill="%2380C8E0"/></svg>'`;
   const months2 = ['1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월'];
 
   // 커버 페이지
