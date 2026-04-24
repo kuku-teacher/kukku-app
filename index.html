@@ -1701,11 +1701,15 @@ async function gasRequest(payload) {
     return { success: false, message: '서버 연결 실패' };
   }
 }
-    // no-cors 모드에서는 응답을 직접 못 읽어서
-    // 대신 GET 방식으로 결과를 받아요
+async function gasRequest(payload) {
+  try {
     const getRes = await fetch(GAS_URL + '?data=' + encodeURIComponent(JSON.stringify(payload)));
     return await getRes.json();
-
+  } catch(e) {
+    showToast('서버 연결 실패 😢 인터넷을 확인해봐요!');
+    return { success: false, message: '서버 연결 실패' };
+  }
+}
   } catch(e) {
     showToast('서버 연결 실패 😢 인터넷을 확인해봐요!');
     return { success: false, message: '서버 연결 실패' };
