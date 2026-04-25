@@ -872,8 +872,8 @@ function logoutUser() {
 
   <!-- 탑바 -->
   <!-- 배경음악 -->
-<audio id="bgMusic" loop>
-  <source src="https://drive.google.com/uc?export=download&id=1YyRBcpD5S50fSk5fXuqi_9nBwMybH6cY" type="audio/mp4">
+<audio id="bgMusic" loop preload="auto">
+  <source src="음원.mp4" type="audio/mp4">
 </audio>
 
 <header class="topbar">
@@ -1728,15 +1728,31 @@ let lastX = 0, lastY = 0;
 function toggleMusic() {
   const audio = document.getElementById('bgMusic');
   const btn = document.getElementById('musicBtn');
+
   if (audio.paused) {
     audio.volume = 0.3;
-    audio.play().catch(()=>{});
-    btn.textContent = '🎵 음악 ON';
-    btn.style.background = 'rgba(61,214,181,0.15)';
-    btn.style.borderColor = 'rgba(61,214,181,0.5)';
+    audio.load();
+    const playPromise = audio.play();
+    if (playPromise !== undefined) {
+      playPromise.then(() => {
+        btn.innerHTML = '🎵 음악 ON';
+        btn.style.background = 'rgba(61,214,181,0.15)';
+        btn.style.borderColor = 'rgba(61,214,181,0.5)';
+      }).catch(() => {
+        // 구글 드라이브 CORS 문제시 새 탭 없이 재시도
+        audio.src = 'https://docs.google.com/uc?export=download&id=1YyRBcpD5S50fSk5fXuqi_9nBwMybH6cY&t=' + Date.now();
+        audio.play().then(() => {
+          btn.innerHTML = '🎵 음악 ON';
+          btn.style.background = 'rgba(61,214,181,0.15)';
+          btn.style.borderColor = 'rgba(61,214,181,0.5)';
+        }).catch(() => {
+          showToast('음악 파일을 불러오는 중이에요 🎵 잠시 후 다시 눌러봐요!');
+        });
+      });
+    }
   } else {
     audio.pause();
-    btn.textContent = '🎵 음악 OFF';
+    btn.innerHTML = '🎵 음악 OFF';
     btn.style.background = 'rgba(255,255,255,0.6)';
     btn.style.borderColor = 'rgba(61,214,181,0.3)';
   }
