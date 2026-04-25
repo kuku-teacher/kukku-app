@@ -873,7 +873,8 @@ function logoutUser() {
   <!-- 탑바 -->
   <!-- 배경음악 -->
 <audio id="bgMusic" loop preload="auto">
-  <source src="음원.mp4" type="audio/mp4">
+  <source src="https://docs.google.com/uc?export=download&id=1YyRBcpD5S50fSk5fXuqi_9nBwMybH6cY" type="audio/mp4">
+  <source src="https://drive.google.com/uc?export=download&id=1YyRBcpD5S50fSk5fXuqi_9nBwMybH6cY" type="audio/mp4">
 </audio>
 
 <header class="topbar">
@@ -1462,7 +1463,7 @@ const QUESTIONS = [
 ];
 
 const SHOP_ITEMS = [
-  { id:'diver_dog', emoji:'🐶', name:'다이버 강아지 여름이', price:3, special:false },
+  { id:'diver_dog', emoji:'🤿', name:'스노쿨링 강아지 여름이', price:3, special:false },
   { id:'nemo', emoji:'🐠', name:'길 잃은 니모', price:3, special:false },
   { id:'seahorse', emoji:'🦄', name:'아기 해마', price:3, special:false },
   { id:'octopus', emoji:'🐙', name:'춤추는 문어', price:4, special:false },
@@ -1473,6 +1474,13 @@ const SHOP_ITEMS = [
   { id:'star', emoji:'⭐', name:'반짝이는 불가사리', price:5, special:false },
   { id:'jellyfish', emoji:'🪼', name:'홀로그램 해파리', price:5, special:false },
   { id:'pearl', emoji:'🦪', name:'진주 조개', price:6, special:false },
+  { id:'whale', emoji:'🐋', name:'혹등고래', price:4, special:false },
+  { id:'dolphin', emoji:'🐬', name:'돌고래 친구', price:4, special:false },
+  { id:'manta', emoji:'🦈', name:'가오리', price:5, special:false },
+  { id:'submarine', emoji:'🚢', name:'노란 잠수함', price:5, special:false },
+  { id:'turtle', emoji:'🐢', name:'바다거북이', price:4, special:false },
+  { id:'crab', emoji:'🦀', name:'집게 아저씨', price:3, special:false },
+  { id:'penguin', emoji:'🐧', name:'수영하는 펭귄', price:4, special:false },
   { id:'crown_kuku', emoji:'👑', name:'홀로그램 왕관 쿠쿠', price:30, special:true }
 ];
 
@@ -1731,25 +1739,14 @@ function toggleMusic() {
 
   if (audio.paused) {
     audio.volume = 0.3;
-    audio.load();
-    const playPromise = audio.play();
-    if (playPromise !== undefined) {
-      playPromise.then(() => {
-        btn.innerHTML = '🎵 음악 ON';
-        btn.style.background = 'rgba(61,214,181,0.15)';
-        btn.style.borderColor = 'rgba(61,214,181,0.5)';
-      }).catch(() => {
-        // 구글 드라이브 CORS 문제시 새 탭 없이 재시도
-        audio.src = 'https://docs.google.com/uc?export=download&id=1YyRBcpD5S50fSk5fXuqi_9nBwMybH6cY&t=' + Date.now();
-        audio.play().then(() => {
-          btn.innerHTML = '🎵 음악 ON';
-          btn.style.background = 'rgba(61,214,181,0.15)';
-          btn.style.borderColor = 'rgba(61,214,181,0.5)';
-        }).catch(() => {
-          showToast('음악 파일을 불러오는 중이에요 🎵 잠시 후 다시 눌러봐요!');
-        });
-      });
-    }
+    audio.play().then(() => {
+      btn.innerHTML = '🎵 음악 ON';
+      btn.style.background = 'rgba(61,214,181,0.15)';
+      btn.style.borderColor = 'rgba(61,214,181,0.5)';
+    }).catch((e) => {
+      showToast('음악 버튼을 한 번 더 눌러봐요 🎵');
+      console.log('음악 오류:', e);
+    });
   } else {
     audio.pause();
     btn.innerHTML = '🎵 음악 OFF';
@@ -1824,6 +1821,17 @@ function saveDiary() {
   localStorage.setItem('kukku_diary', JSON.stringify(diary));
   localStorage.setItem('kukku_stamps', stamps);
   localStorage.setItem('kukku_owned', JSON.stringify(ownedItems));
+
+  // 서버에도 스탬프 저장
+  if (currentUser) {
+    gasRequest({
+      action: 'saveStamps',
+      email: currentUser.email,
+      nickname: currentUser.nickname,
+      stamps: stamps,
+      ownedItems: ownedItems
+    });
+  }
 }
 
 // ============================================================
@@ -2804,6 +2812,31 @@ async function runPrescription() {
   loading.style.display = 'block';
   result.style.display = 'none';
 
+  // 1. 먼저 구글 시트 처방전 데이터로 시도
+  if (rec && rec.emotion?.label) {
+    const colorCategory = getColorCategory(rec.mixColor || '');
+    const rxResult = await gasRequest({
+      action: 'getPrescription',
+      emotion: rec.emotion.label,
+      colorGroup: colorCategory
+    });
+
+    if (rxResult.success) {
+      loading.style.display = 'none';
+      result.style.display = 'block';
+      result.innerHTML = `
+        <div style="line-height:2;">
+          💊 <strong>루루의 감정 처방전</strong><br><br>
+          🔍 <strong>오늘의 진단:</strong> ${rxResult.diagnosis}<br><br>
+          🎨 <strong>미술 처방:</strong> ${rxResult.artActivity}<br><br>
+          💙 <strong>루루의 한마디:</strong> ${rxResult.comfort}<br><br>
+          ✨ <strong>오늘의 미션:</strong> ${rxResult.mission}
+        </div>`;
+      return;
+    }
+  }
+
+  // 2. 구글 시트에 없으면 AI로 생성
   const context = rec
     ? `오늘(${todayDs}) 감정: ${rec.emotion?.label||'?'}, 색 이름: ${rec.colorName||'?'}, 온도: ${rec.temp||'?'}°C, 이야기: ${rec.answer||'없음'}`
     : '오늘 기록 없음 (최근 감정 기록 기반 처방)';
@@ -2940,7 +2973,7 @@ ${summary}
   let html2 = `
   <div style="background:linear-gradient(135deg,#e8f0ff,#fde8f0,#e8f8f4);border-radius:24px;padding:40px 32px;text-align:center;margin-bottom:20px;border:2px solid rgba(201,214,255,0.4);position:relative;overflow:hidden;">
     <div style="position:absolute;top:-20px;right:-20px;font-size:5rem;opacity:0.08;">📖</div>
-    <img src="${kuku}" style="width:120px;height:120px;object-fit:contain;margin-bottom:16px;" alt="쿠쿠">
+    <div style="font-size:4rem;margin-bottom:16px;">🐟</div>
     <div style="font-family:var(--font-title);font-size:2rem;color:#3a4a8a;margin-bottom:8px;">
       ${aiStory?.title || pbYear+'년 '+months2[pbMonth]+' 나의 마음 이야기'}
     </div>
