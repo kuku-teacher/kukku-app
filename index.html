@@ -635,6 +635,9 @@ body {
   cursor: pointer; border: 2px solid rgba(255,255,255,0.8);
   box-shadow: 0 2px 8px rgba(0,0,0,0.1); transition: all 0.2s;
 }
+.canvas-color-dot[data-color="#FFFFFF"] {
+  border: 2px solid #c4c4c4;
+}
 .canvas-color-dot:hover { transform: scale(1.18); }
 .canvas-color-dot.active { box-shadow: 0 0 0 3px var(--emerald), 0 4px 12px rgba(0,0,0,0.12); }
 .draw-canvas-wrap {
@@ -790,6 +793,58 @@ body {
 }
 .day-popup-title { font-family: var(--font-title); font-size: 1.2rem; color: var(--navy); margin-bottom: 16px; }
 
+/* ========== 그림 큰 보기 모달 ========== */
+.img-zoom-overlay {
+  position: fixed; inset: 0;
+  background: rgba(26,58,74,0.7); backdrop-filter: blur(8px);
+  z-index: 600; display: none;
+  align-items: center; justify-content: center;
+  padding: 20px;
+}
+.img-zoom-overlay.show { display: flex; }
+.img-zoom-inner {
+  position: relative;
+  background: white; border-radius: 20px;
+  padding: 16px; max-width: 92vw; max-height: 92vh;
+  display: flex; flex-direction: column; gap: 10px;
+  box-shadow: 0 20px 60px rgba(26,58,74,0.4);
+}
+#imgZoomImage {
+  max-width: 100%; max-height: 78vh; object-fit: contain;
+  border-radius: 12px; background: #f8fffe;
+}
+#imgZoomCaption {
+  font-family: var(--font-title); font-size: 0.9rem;
+  color: var(--navy); text-align: center;
+}
+
+/* ========== 그림책 갤러리 썸네일 ========== */
+.pb-gallery {
+  display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px;
+  padding-top: 14px; border-top: 1px dashed rgba(140,170,200,0.25);
+}
+.pb-gallery-item {
+  width: 80px; height: 80px;
+  border-radius: 12px; overflow: hidden; cursor: pointer;
+  border: 2px solid rgba(255,255,255,0.7);
+  box-shadow: 0 3px 10px rgba(0,0,0,0.1);
+  transition: transform 0.2s, box-shadow 0.2s;
+  position: relative; background: #f8fffe;
+}
+.pb-gallery-item:hover {
+  transform: scale(1.08) translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0,0,0,0.18);
+}
+.pb-gallery-item img {
+  width: 100%; height: 100%; object-fit: cover; display: block;
+}
+.pb-gallery-item .pb-gallery-date {
+  position: absolute; bottom: 0; left: 0; right: 0;
+  background: linear-gradient(to top, rgba(0,0,0,0.55), transparent);
+  color: white; font-size: 0.7rem; padding: 8px 4px 3px;
+  text-align: center; font-family: var(--font-title);
+}
+
 /* ========== SCROLLBAR ========== */
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -902,6 +957,15 @@ function logoutUser() {
     <button class="day-popup-close" onclick="closeDayPopup()">✕</button>
     <div class="day-popup-title" id="dayPopupTitle"></div>
     <div id="dayPopupContent"></div>
+  </div>
+</div>
+
+<!-- 그림 큰 보기 모달 -->
+<div class="img-zoom-overlay" id="imgZoomOverlay" onclick="closeImgZoom()">
+  <div class="img-zoom-inner" onclick="event.stopPropagation()">
+    <button class="day-popup-close" onclick="closeImgZoom()">✕</button>
+    <img id="imgZoomImage" alt="그림 크게 보기">
+    <div id="imgZoomCaption"></div>
   </div>
 </div>
 
@@ -1288,13 +1352,15 @@ function logoutUser() {
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:8px;">
           <div class="card-title" style="margin-bottom:0;">🖌️ 수채화 그림판</div>
           <div style="display:flex;gap:8px;">
-            <button class="tool-btn" onclick="saveCanvasImg()">💾 저장</button>
-            <button class="tool-btn" onclick="savePaintToRecord()" style="background:rgba(61,214,181,0.15);border-color:rgba(61,214,181,0.4);color:var(--emerald-deep);">📎 오늘 기록에 첨부</button>
+            <button class="tool-btn" onclick="saveCanvasImg()" title="내 컴퓨터에 PNG 파일로 저장">💾 PC에 저장</button>
+            <button class="tool-btn" onclick="savePaintToRecord()" title="그림책에 들어갈 오늘의 그림으로 첨부" style="background:rgba(61,214,181,0.15);border-color:rgba(61,214,181,0.4);color:var(--emerald-deep);">📖 그림책에 첨부</button>
           </div>
         </div>
 
         <!-- 처방전 힌트 -->
-        <div id="paintHint" style="display:none;background:linear-gradient(135deg,rgba(201,214,255,0.2),rgba(255,220,235,0.15));border-radius:12px;padding:10px 16px;font-size:0.83rem;color:#4a5a8a;margin-bottom:12px;border:1px solid rgba(201,214,255,0.35);">
+        <div id="paintHint" style="display:none;background:linear-gradient(135deg,rgba(201,214,255,0.2),rgba(255,220,235,0.15));border-radius:12px;padding:10px 16px;font-size:0.83rem;color:#4a5a8a;margin-bottom:12px;border:1px solid rgba(201,214,255,0.35);position:relative;padding-right:36px;">
+          <span id="paintHintText"></span>
+          <button onclick="closePaintHint()" style="position:absolute;top:6px;right:8px;background:transparent;border:none;cursor:pointer;font-size:1rem;color:#7a8aaa;padding:4px 8px;border-radius:50%;" title="닫기">✕</button>
         </div>
 
         <!-- 툴바 -->
@@ -2000,17 +2066,11 @@ function showPage(id) {
     restoreOceanLayout();
   }
   if (id === 'paint') {
-    // 페이지 렌더 완료 후 캔버스 크기 동기화
+    // 페이지 렌더 완료 후 캔버스 크기 동기화 (잘림 방지: 동일 함수 사용)
     setTimeout(() => {
-      const canvas = document.getElementById('drawCanvas');
-      const ctx = canvas.getContext('2d');
-      const tmp = document.createElement('canvas');
-      tmp.width = canvas.width || 10;
-      tmp.height = canvas.height || 10;
-      tmp.getContext('2d').drawImage(canvas, 0, 0);
-      canvas.width = canvas.offsetWidth;
-      canvas.height = canvas.offsetHeight;
-      ctx.drawImage(tmp, 0, 0);
+      if (typeof window._paintResizeCanvas === 'function') {
+        window._paintResizeCanvas();
+      }
     }, 50);
   }
   if (id === 'picturebook') { updatePbLabel(); }
@@ -2126,10 +2186,10 @@ function initColorWells() {
     wrap.appendChild(w);
   });
 
-  // paint colors
+  // paint colors — 18색 모두 사용 (검정·흰색·파스텔 포함)
   const pc = document.getElementById('paintColors');
   pc.innerHTML = '';
-  PALETTE_COLORS.slice(0, 12).forEach(c => {
+  PALETTE_COLORS.forEach(c => {
     const d = document.createElement('div');
     d.className = 'canvas-color-dot' + (c === paintColor ? ' active' : '');
     d.style.background = c;
@@ -2139,6 +2199,9 @@ function initColorWells() {
       paintColor = c;
       document.querySelectorAll('.canvas-color-dot').forEach(x => x.classList.remove('active'));
       d.classList.add('active');
+      // 커스텀 색 강조 해제
+      const customInput = document.getElementById('customColor');
+      if (customInput) customInput.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)';
     };
     pc.appendChild(d);
   });
@@ -2370,11 +2433,18 @@ function goToPaint() {
   // 처방전 활동 힌트 팁 표시
   if (window._lastRxArt) {
     const hint = document.getElementById('paintHint');
-    if (hint) {
-      hint.textContent = '💊 오늘의 미술 처방: ' + window._lastRxArt;
+    const txt = document.getElementById('paintHintText');
+    if (hint && txt) {
+      txt.textContent = '💊 오늘의 미술 처방: ' + window._lastRxArt;
       hint.style.display = 'block';
     }
   }
+}
+
+function closePaintHint() {
+  const hint = document.getElementById('paintHint');
+  if (hint) hint.style.display = 'none';
+  window._lastRxArt = null;  // 다음 진입 시 다시 안 뜨도록
 }
 
 function resetRecord() {
@@ -2623,6 +2693,17 @@ function closeDayPopup() {
   document.getElementById('dayPopupOverlay').classList.remove('show');
 }
 
+// 그림 큰 보기 모달 (그림책 갤러리에서 사용)
+function openImgZoom(dateStr, src) {
+  const overlay = document.getElementById('imgZoomOverlay');
+  document.getElementById('imgZoomImage').src = src;
+  document.getElementById('imgZoomCaption').textContent = '🎨 ' + dateStr + ' 의 그림';
+  overlay.classList.add('show');
+}
+function closeImgZoom() {
+  document.getElementById('imgZoomOverlay').classList.remove('show');
+}
+
 // ============================================================
 // CALENDAR
 // ============================================================
@@ -2732,27 +2813,45 @@ function initPaintCanvas() {
   const canvas = document.getElementById('drawCanvas');
   const ctx = canvas.getContext('2d');
 
-  // ── 캔버스 픽셀 크기 = 실제 렌더 크기 완전 일치 ──
+  // ── 캔버스 픽셀 크기 = 실제 렌더 크기 일치 (그림은 스케일링하여 보존) ──
   function resizeCanvas() {
-    // 현재 그림 백업
-    const tmp = document.createElement('canvas');
-    tmp.width = canvas.width || 10;
-    tmp.height = canvas.height || 10;
-    tmp.getContext('2d').drawImage(canvas, 0, 0);
-
-    // CSS 렌더 크기를 정확히 읽어서 내부 해상도 일치
     const displayW = canvas.offsetWidth;
     const displayH = canvas.offsetHeight;
-    if (displayW > 0 && displayH > 0) {
-      canvas.width = displayW;
-      canvas.height = displayH;
-      ctx.drawImage(tmp, 0, 0);
+    if (displayW <= 0 || displayH <= 0) return;
+    // 같은 크기면 아무것도 안 함 (showPage 재진입 시 무의미한 가공 방지)
+    if (canvas.width === displayW && canvas.height === displayH) return;
+
+    // 현재 그림 백업
+    const oldW = canvas.width || 0;
+    const oldH = canvas.height || 0;
+    let tmp = null;
+    if (oldW > 0 && oldH > 0) {
+      tmp = document.createElement('canvas');
+      tmp.width = oldW;
+      tmp.height = oldH;
+      tmp.getContext('2d').drawImage(canvas, 0, 0);
+    }
+
+    // 새 크기 적용 → 캔버스 비워짐
+    canvas.width = displayW;
+    canvas.height = displayH;
+
+    // 비율 유지 스케일로 다시 그리기 (그림이 잘리거나 왜곡되지 않도록)
+    if (tmp) {
+      const scale = Math.min(displayW / oldW, displayH / oldH);
+      const drawW = oldW * scale;
+      const drawH = oldH * scale;
+      const dx = (displayW - drawW) / 2;
+      const dy = (displayH - drawH) / 2;
+      ctx.drawImage(tmp, 0, 0, oldW, oldH, dx, dy, drawW, drawH);
     }
   }
 
   // 페이지 로드 후 + 창 크기 변경 시 리사이즈
   setTimeout(resizeCanvas, 100);
   window.addEventListener('resize', () => setTimeout(resizeCanvas, 100));
+  // 외부(showPage)에서 다시 부를 수 있게 노출
+  window._paintResizeCanvas = resizeCanvas;
 
   // 브러시 크기 표시
   document.getElementById('brushSize').addEventListener('input', (e) => {
@@ -2851,12 +2950,18 @@ function initPaintCanvas() {
   canvas.addEventListener('touchstart', (e) => { e.preventDefault(); startDraw(e); }, {passive:false});
   canvas.addEventListener('touchmove',  (e) => { e.preventDefault(); draw(e); },      {passive:false});
   canvas.addEventListener('touchend',   stopDraw);
+  canvas.addEventListener('touchcancel',stopDraw);  // 모바일 알림 등으로 터치 취소 시
 }
 
 
 function setCustomColor(c) {
   paintColor = c;
   document.querySelectorAll('.canvas-color-dot').forEach(x => x.classList.remove('active'));
+  // 커스텀 색 input에 시각적 강조
+  const customInput = document.getElementById('customColor');
+  if (customInput) {
+    customInput.style.boxShadow = '0 0 0 3px var(--emerald), 0 2px 8px rgba(0,0,0,0.12)';
+  }
 }
 
 function loadBgImage(event) {
@@ -2885,26 +2990,61 @@ function clearBgImage() {
 function savePaintToRecord() {
   const canvas = document.getElementById('drawCanvas');
   const bgImg = document.getElementById('bgImageLayer');
-  // 배경+그림 합성
+
+  // 그림책 표시용 축소판 (가로 최대 800px) — 용량 절약
+  const MAX_W = 800;
+  const scale = Math.min(1, MAX_W / canvas.width);
+  const targetW = Math.round(canvas.width * scale);
+  const targetH = Math.round(canvas.height * scale);
+
   const mergedCanvas = document.createElement('canvas');
-  mergedCanvas.width = canvas.width;
-  mergedCanvas.height = canvas.height;
+  mergedCanvas.width = targetW;
+  mergedCanvas.height = targetH;
   const mCtx = mergedCanvas.getContext('2d');
-  // 배경색
   mCtx.fillStyle = '#f8fffe';
-  mCtx.fillRect(0,0,mergedCanvas.width,mergedCanvas.height);
-  // 배경 이미지
+  mCtx.fillRect(0,0,targetW,targetH);
   if (bgImg.style.display !== 'none' && bgImg.src) {
-    mCtx.drawImage(bgImg, 0, 0, mergedCanvas.width, mergedCanvas.height);
+    mCtx.drawImage(bgImg, 0, 0, targetW, targetH);
   }
-  // 그림
-  mCtx.drawImage(canvas, 0, 0);
-  const dataUrl = mergedCanvas.toDataURL('image/jpeg', 0.75);
-  // 오늘 기록에 저장
+  mCtx.drawImage(canvas, 0, 0, targetW, targetH);
+
+  // JPEG 압축 (60% — 화질 유지하면서 용량 절감)
+  const dataUrl = mergedCanvas.toDataURL('image/jpeg', 0.6);
+
   const todayDs = new Date().toISOString().split('T')[0];
   if (!diary[todayDs]) diary[todayDs] = {};
   diary[todayDs].drawing = dataUrl;
-  saveDiary();
+
+  // 용량 보호: 60일 이상 지난 그림은 자동 삭제 (텍스트 기록은 보존)
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - 60);
+  Object.keys(diary).forEach(ds => {
+    if (diary[ds].drawing && new Date(ds) < cutoff) {
+      delete diary[ds].drawing;
+    }
+  });
+
+  // 저장 시도 (용량 초과 시 가장 오래된 그림부터 삭제하며 재시도)
+  try {
+    saveDiary();
+  } catch (e) {
+    if (e.name === 'QuotaExceededError' || e.code === 22) {
+      // 그림 있는 날짜를 옛날 순으로 정렬, 가장 오래된 것부터 5개씩 삭제하며 재시도
+      const drawingDates = Object.keys(diary).filter(d => diary[d].drawing).sort();
+      let removed = 0;
+      while (drawingDates.length > 0) {
+        for (let i = 0; i < 5 && drawingDates.length > 0; i++) {
+          delete diary[drawingDates.shift()].drawing;
+          removed++;
+        }
+        try { saveDiary(); break; } catch(e2) {}
+      }
+      showToast(`💾 저장 공간 확보를 위해 오래된 그림 ${removed}장을 정리했어`);
+    } else {
+      showToast('⚠️ 그림 저장 실패: ' + e.message);
+      return;
+    }
+  }
   showToast('📎 오늘 기록에 그림을 첨부했어! 그림책에도 나올 거야 🎨');
 }
 
@@ -3219,6 +3359,24 @@ async function renderPicturebook() {
             ${r.emotion?.emoji||''} ${r.date.slice(8)}일 · ${r.colorName||''}
           </div>`).join('')}
       </div>` : ''}
+      ${(() => {
+        // 이 주에 그림 첨부된 기록만 모아서 갤러리로
+        const drawingsThisWeek = weekRecs.filter(r => r.drawing);
+        if (drawingsThisWeek.length === 0) return '';
+        const galleryHtml = drawingsThisWeek.map(r => {
+          const day = r.date.slice(8);
+          const captionDate = r.date;
+          // dataURL을 onclick에 그대로 넣지 않고 data-* 속성으로 안전하게 전달
+          return `<div class="pb-gallery-item" onclick="openImgZoom('${r.date}', this.querySelector('img').src)">
+            <img src="${r.drawing}" alt="${r.date} 그림" loading="lazy">
+            <div class="pb-gallery-date">${day}일</div>
+          </div>`;
+        }).join('');
+        return `<div class="pb-gallery">
+          <div style="font-size:0.75rem;color:#7a90a0;width:100%;margin-bottom:4px;">🎨 이 주에 그린 그림 (${drawingsThisWeek.length}장)</div>
+          ${galleryHtml}
+        </div>`;
+      })()}
     </div>`;
   });
 
