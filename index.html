@@ -1651,6 +1651,7 @@ function getColorShape(hexColor) {
   let r, g, b;
   if (hexColor.startsWith('rgb')) {
     const m = hexColor.match(/\d+/g);
+    if (!m) return null;
     [r, g, b] = m.map(Number);
   } else {
     const hex = hexColor.replace('#','');
@@ -1658,22 +1659,30 @@ function getColorShape(hexColor) {
     g = parseInt(hex.slice(2,4),16);
     b = parseInt(hex.slice(4,6),16);
   }
-  const max = Math.max(r,g,b);
-  const min = Math.min(r,g,b);
-  const brightness = (r*299 + g*587 + b*114) / 1000;
-  const saturation = max === 0 ? 0 : (max-min)/max;
+  // 시트 9그룹과 일치하는 v2 분류 (HSV 기반) — getColorCategory와 동일 로직
+  const rN = r/255, gN = g/255, bN = b/255;
+  const max = Math.max(rN, gN, bN), min = Math.min(rN, gN, bN);
+  const val = max;
+  const sat = max === 0 ? 0 : (max - min) / max;
+  let hue = 0;
+  if (max !== min) {
+    const d = max - min;
+    if (max === rN) hue = ((gN - bN) / d + (gN < bN ? 6 : 0)) / 6;
+    else if (max === gN) hue = ((bN - rN) / d + 2) / 6;
+    else hue = ((rN - gN) / d + 4) / 6;
+  }
+  hue *= 360;
 
-  // 색상 계열 판별
-  if (r > 180 && g < 100 && b < 100) return { shape:'rect',   label:'빨강', color: hexColor }; // 빨강→네모
-  if (r < 100 && g < 130 && b > 160) return { shape:'circle', label:'파랑', color: hexColor }; // 파랑→원(빈 공간)
-  if (r < 120 && g > 150 && b < 120) return { shape:'clover', label:'초록', color: hexColor }; // 초록→클로버
-  if (r > 200 && g > 180 && b < 80)  return { shape:'tri',    label:'노랑', color: hexColor }; // 노랑→삼각형
-  if (r > 180 && g < 120 && b > 120) return { shape:'star',   label:'보라', color: hexColor }; // 보라/핑크→별
-  if (r > 200 && g > 100 && b < 80)  return { shape:'diamond',label:'주황', color: hexColor }; // 주황→다이아
-  if (brightness < 60)               return { shape:'moon',   label:'어두운', color: hexColor }; // 어두운→달
-  if (brightness > 220 && saturation < 0.15) return { shape:'wave', label:'밝은', color: hexColor }; // 밝은→웨이브
-  // 기본: 혼합색 → 꽃
-  return { shape:'flower', label:'혼합', color: hexColor };
+  // 우선순위 분류 (val/sat 우선 → 색조)
+  if (val > 0.95 && sat < 0.15) return { shape:'wave',     label:'흰색',   color: hexColor };  // 흰색 → 웨이브
+  if (val < 0.55)               return { shape:'crescent', label:'어두운', color: hexColor };  // 검정·네이비·갈색·회색 → 반달
+  if (val > 0.85 && sat < 0.45) return { shape:'flower',   label:'파스텔', color: hexColor };  // 파스텔 → 꽃
+  if (hue < 20 || hue >= 340)   return { shape:'rect',     label:'빨강',   color: hexColor };  // 빨강 → 네모
+  if (hue >= 20 && hue < 70)    return { shape:'tri',      label:'노랑',   color: hexColor };  // 노랑·주황 → 삼각형
+  if (hue >= 70 && hue < 165)   return { shape:'clover',   label:'초록',   color: hexColor };  // 초록 → 클로버
+  if (hue >= 165 && hue < 250)  return { shape:'circle',   label:'파랑',   color: hexColor };  // 파랑·하늘·청록 → 원
+  if (hue >= 250 && hue < 340)  return { shape:'star',     label:'보라',   color: hexColor };  // 보라·핫핑크 → 별
+  return { shape:'flower',     label:'혼합',   color: hexColor };  // 그 외 → 꽃 (혼합)
 }
 
 function drawShape(shape, color, size=28) {
@@ -1722,16 +1731,11 @@ function drawShape(shape, color, size=28) {
     el.setAttribute('points','14,2 17,10 26,10 19,15 22,24 14,19 6,24 9,15 2,10 11,10');
     el.setAttribute('fill',h); el.setAttribute('opacity','0.88');
     svg.appendChild(el);
-  } else if (shape === 'diamond') {
-    // 다이아 (주황)
-    const el = document.createElementNS('http://www.w3.org/2000/svg','polygon');
-    el.setAttribute('points','14,2 26,14 14,26 2,14');
-    el.setAttribute('fill',h); el.setAttribute('opacity','0.88');
-    svg.appendChild(el);
-  } else if (shape === 'moon') {
-    // 달 (어두운)
+  } else if (shape === 'crescent') {
+    // 반달 (어두운 색 — 검정·네이비·갈색·회색 모두)
+    // 큰 원에서 오른쪽 절반을 직선으로 잘라낸 형태 → 절반은 비고 절반은 채워진 균형
     const el = document.createElementNS('http://www.w3.org/2000/svg','path');
-    el.setAttribute('d','M14,3 A11,11 0 1,0 14,25 A7,7 0 1,1 14,3 Z');
+    el.setAttribute('d','M14,3 A11,11 0 1,0 14,25 L14,3 Z');
     el.setAttribute('fill',h); el.setAttribute('opacity','0.88');
     svg.appendChild(el);
   } else if (shape === 'wave') {
@@ -2785,15 +2789,17 @@ function renderCalendar() {
 function renderShapeLegend() {
   const legend = document.getElementById('shapeLegend');
   if (!legend) return;
+  // 시트의 9그룹 중 시각화 가능한 7개 (혼합은 꽃, 어두운은 반달)
+  // 주황은 노랑에 흡수돼서 별도 도형 없음
   const shapes = [
-    { shape:'rect',   label:'빨간 계열', color:'#FF3B3B' },
-    { shape:'circle', label:'파란 계열', color:'#1FA8D8' },
-    { shape:'clover', label:'초록 계열', color:'#5DB85A' },
-    { shape:'tri',    label:'노란 계열', color:'#FFD700' },
-    { shape:'star',   label:'보라/핑크', color:'#7C4DFF' },
-    { shape:'diamond',label:'주황 계열', color:'#FFA500' },
-    { shape:'moon',   label:'어두운 계열', color:'#3A4A6A' },
-    { shape:'flower', label:'혼합색',   color:'#FF6B9D' },
+    { shape:'rect',     label:'빨간 계열',   color:'#FF3B3B' },
+    { shape:'tri',      label:'노란 계열',   color:'#FFD700' },
+    { shape:'clover',   label:'초록 계열',   color:'#5DB85A' },
+    { shape:'circle',   label:'파란 계열',   color:'#1FA8D8' },
+    { shape:'star',     label:'보라 계열',   color:'#7C4DFF' },
+    { shape:'flower',   label:'파스텔/혼합', color:'#FF6B9D' },
+    { shape:'wave',     label:'흰색',       color:'#5C6B7A' },
+    { shape:'crescent', label:'어두운 계열', color:'#3A4A6A' },
   ];
   legend.innerHTML = '';
   shapes.forEach(s => {
