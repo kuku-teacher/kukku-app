@@ -692,6 +692,17 @@ body {
   box-shadow: 0 8px 24px rgba(0,0,0,0.08);
 }
 .shop-item.owned { border-color: var(--emerald); background: rgba(61,214,181,0.08); }
+.shop-item.owned:hover { border-color: var(--emerald-deep); background: rgba(61,214,181,0.18); }
+.shop-item.locked {
+  opacity: 0.55; cursor: not-allowed;
+  background: rgba(180,180,200,0.08);
+  border-color: rgba(180,180,200,0.4);
+  filter: grayscale(0.5);
+}
+.shop-item.locked:hover {
+  transform: none; border-color: rgba(180,180,200,0.4);
+  box-shadow: none;
+}
 .shop-emoji { font-size: 2.4rem; margin-bottom: 10px; }
 .shop-name { font-family: var(--font-title); font-size: 0.88rem; color: var(--navy); margin-bottom: 6px; }
 .shop-price {
@@ -703,6 +714,11 @@ body {
 .shop-owned-badge {
   background: rgba(61,214,181,0.2); color: var(--emerald-deep);
   border-radius: 12px; padding: 3px 10px; font-size: 0.78rem;
+}
+.shop-locked-badge {
+  background: rgba(120,120,140,0.15); color: #6a6a8a;
+  border-radius: 12px; padding: 3px 10px; font-size: 0.78rem;
+  border: 1px dashed rgba(120,120,140,0.4);
 }
 
 /* ========== GREETINGS ========== */
@@ -1351,9 +1367,9 @@ function logoutUser() {
     <div class="page" id="page-shop">
       <div class="card">
         <div class="card-title">🏪 산호초 상점</div>
-        <div class="card-sub">모은 스탬프로 바다 친구들을 데려와봐!</div>
+        <div class="card-sub">감정을 기록할 때마다 스탬프 1개! 모은 스탬프로 바다 친구들을 데려와봐</div>
         <div class="shop-header">
-          <div style="font-size:0.88rem;color:#6a8a94;">스탬프 5개 완료 시 1개 획득 · 특수 스티커는 30일 연속 달성!</div>
+          <div style="font-size:0.88rem;color:#6a8a94;">감정 기록 1회당 🐚 1개 적립 · 👑 특수 스티커는 30일 연속 기록 달성 시 해금!</div>
           <div class="my-stamps">🐚 내 스탬프 <strong id="shopStampCount">0</strong>개</div>
         </div>
         <div class="shop-grid" id="shopGrid"></div>
@@ -1361,7 +1377,7 @@ function logoutUser() {
 
       <div class="card">
         <div class="card-title">🌊 나의 바다 꾸미기</div>
-        <div class="card-sub">구매한 친구들을 드래그해서 배치해봐!</div>
+        <div class="card-sub">보유한 친구들을 클릭하면 바다에 등장해요! 드래그로 위치를 옮기고, 더블클릭하면 떠나보낼 수 있어요</div>
         <div id="myOcean" style="position:relative;background:linear-gradient(180deg,#e0f7f4 0%,#b8e8f8 40%,#7ec8e3 100%);border-radius:20px;min-height:280px;overflow:hidden;border:2px solid rgba(61,214,181,0.25);">
           <div style="position:absolute;bottom:0;left:0;right:0;height:60px;background:linear-gradient(transparent,rgba(61,214,181,0.2));border-radius:0 0 18px 18px;"></div>
           <div id="oceanStickers" style="position:absolute;inset:0;"></div>
@@ -1715,6 +1731,8 @@ let currentPageId = 'home';
 let diary = JSON.parse(localStorage.getItem('kukku_diary') || '{}');
 let stamps = parseInt(localStorage.getItem('kukku_stamps') || '0');
 let ownedItems = JSON.parse(localStorage.getItem('kukku_owned') || '[]');
+// 바다 꾸미기 배치 정보 [{ itemId, leftPct, topPct, instanceId }]
+let oceanLayout = JSON.parse(localStorage.getItem('kukku_ocean') || '[]');
 let currentStep = 1;
 let selectedEmotion = null;
 let selectedColors = [];
@@ -1793,6 +1811,7 @@ function saveDiary() {
   localStorage.setItem('kukku_diary', JSON.stringify(diary));
   localStorage.setItem('kukku_stamps', stamps);
   localStorage.setItem('kukku_owned', JSON.stringify(ownedItems));
+  localStorage.setItem('kukku_ocean', JSON.stringify(oceanLayout));
 
   // 서버에도 스탬프 저장
   if (currentUser) {
@@ -1830,7 +1849,11 @@ function showPage(id) {
   document.getElementById('nav-' + id)?.classList.add('active');
   if (id === 'mandala') renderMandala();
   if (id === 'calendar') renderCalendar();
-  if (id === 'shop') { document.getElementById('shopStampCount').textContent = stamps; renderShop(); }
+  if (id === 'shop') {
+    document.getElementById('shopStampCount').textContent = stamps;
+    renderShop();
+    restoreOceanLayout();
+  }
   if (id === 'paint') {
     // 페이지 렌더 완료 후 캔버스 크기 동기화
     setTimeout(() => {
@@ -3034,77 +3057,261 @@ async function renderPicturebook() {
 // ============================================================
 // SHOP
 // ============================================================
+// 연속 기록일 계산 (특수 스티커 잠금에 사용)
+function getStreakDays() {
+  let streak = 0;
+  const today = new Date();
+  for (let i = 0; i < 365; i++) {
+    const d = new Date(today); d.setDate(d.getDate() - i);
+    const ds = d.toISOString().split('T')[0];
+    if (diary[ds]) streak++;
+    else if (i > 0) break;
+  }
+  return streak;
+}
+
 function renderShop() {
   const grid = document.getElementById('shopGrid');
   grid.innerHTML = '';
   document.getElementById('shopStampCount').textContent = stamps;
-  SHOP_ITEMS.forEach(item => {
+
+  // #11: 가격 오름차순 → 특수는 맨 뒤로
+  const sortedItems = [...SHOP_ITEMS].sort((a, b) => {
+    if (a.special !== b.special) return a.special ? 1 : -1;
+    return a.price - b.price;
+  });
+
+  const streak = getStreakDays();
+
+  sortedItems.forEach(item => {
     const owned = ownedItems.includes(item.id);
+    // #2: 특수 스티커 잠금 (30일 연속 기록 필요)
+    const locked = item.special && streak < 30;
     const div = document.createElement('div');
-    div.className = 'shop-item' + (owned ? ' owned' : '');
+    div.className = 'shop-item' + (owned ? ' owned' : '') + (locked ? ' locked' : '');
+
+    const emojiHtml = item.emoji === 'KUKU_IMG'
+      ? `<img src="${KUKU_IMG_SRC}" style="width:48px;height:48px;object-fit:contain;" alt="쿠쿠">`
+      : item.emoji;
+
+    let bottomHtml = '';
+    if (locked) {
+      bottomHtml = `<div class="shop-locked-badge">🔒 ${streak}/30일</div>`;
+    } else if (owned) {
+      bottomHtml = '<div class="shop-owned-badge">✅ 보유 중 (탭하면 바다로!)</div>';
+    } else {
+      bottomHtml = `<div class="shop-price">🐚 ${item.price}개</div>`;
+    }
+
     div.innerHTML = `
-      <div class="shop-emoji">${item.emoji === 'KUKU_IMG' 
-        ? `<img src="${KUKU_IMG_SRC}" style="width:48px;height:48px;object-fit:contain;" alt="쿠쿠">` 
-        : item.emoji}</div>
+      <div class="shop-emoji">${emojiHtml}</div>
       <div class="shop-name">${item.name}</div>
       ${item.special ? '<div style="font-size:0.72rem;color:#8a60d0;margin-bottom:6px;">✨ 특수 스티커</div>' : ''}
-      ${owned
-        ? '<div class="shop-owned-badge">✅ 보유 중</div>'
-        : `<div class="shop-price">🐚 ${item.price}개</div>`}
+      ${bottomHtml}
     `;
-    if (!owned) div.onclick = () => buyItem(item);
+
+    if (locked) {
+      div.onclick = () => showToast(`🔒 30일 연속 기록을 달성하면 해금돼! (현재 ${streak}일)`);
+    } else if (owned) {
+      // #7, #8: 보유한 스티커는 다시 바다에 꺼낼 수 있게
+      div.onclick = () => {
+        addStickerToOcean(item, null, true);
+        showToast(`${item.emoji === 'KUKU_IMG' ? '🐟' : item.emoji} ${item.name}이(가) 바다에 등장했어!`);
+      };
+    } else {
+      div.onclick = () => buyItem(item);
+    }
     grid.appendChild(div);
   });
 }
 
 function buyItem(item) {
   if (stamps < item.price) {
-    showToast(`스탬프가 부족해! (필요: 🐚${item.price}개)`);
+    showToast(`스탬프가 부족해! (필요: 🐚${item.price}개, 현재 ${stamps}개)`);
     return;
+  }
+  // #10: 비싼 아이템(5개 이상)은 구매 확인
+  if (item.price >= 5) {
+    const emojiTxt = item.emoji === 'KUKU_IMG' ? '🐟' : item.emoji;
+    if (!confirm(`${emojiTxt} ${item.name}을(를) 🐚${item.price}개로 데려올까?`)) return;
   }
   stamps -= item.price;
   ownedItems.push(item.id);
   saveDiary();
   renderShop();
-  addStickerToOcean(item);
-  showToast(`${item.emoji} ${item.name} 구매 완료!`);
+  // #12: 구매 애니메이션과 함께 바다에 추가
+  addStickerToOcean(item, null, true);
+  showToast(`${item.emoji === 'KUKU_IMG' ? '🐟' : item.emoji} ${item.name} 구매 완료! ✨`);
   document.getElementById('topStampCount').textContent = stamps;
 }
 
-function addStickerToOcean(item) {
+// 바다 꾸미기 영역 초기화 + 저장된 배치 복원
+function restoreOceanLayout() {
+  const ocean = document.getElementById('oceanStickers');
+  if (!ocean) return;
+  ocean.innerHTML = '';
+  if (oceanLayout.length === 0) {
+    document.getElementById('oceanHint').style.display = 'block';
+    return;
+  }
+  document.getElementById('oceanHint').style.display = 'none';
+  oceanLayout.forEach(layout => {
+    const item = SHOP_ITEMS.find(s => s.id === layout.itemId);
+    if (item) addStickerToOcean(item, layout, false);
+  });
+}
+
+// item: SHOP_ITEMS 항목, savedLayout: 저장된 위치(없으면 새로 생성), withAnim: 등장 애니메이션
+function addStickerToOcean(item, savedLayout, withAnim) {
   const ocean = document.getElementById('oceanStickers');
   document.getElementById('oceanHint').style.display = 'none';
+
+  const instanceId = savedLayout?.instanceId || ('s_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7));
+  const leftPct = savedLayout?.leftPct ?? (Math.random() * 70 + 10);
+  const topPct = savedLayout?.topPct ?? (Math.random() * 60 + 10);
+
   const sticker = document.createElement('div');
+  sticker.dataset.instanceId = instanceId;
+  sticker.dataset.itemId = item.id;
   sticker.style.cssText = `
-    position:absolute;font-size:2.2rem;cursor:grab;user-select:none;
-    left:${Math.random()*70+10}%;top:${Math.random()*60+10}%;
+    position:absolute;font-size:2.2rem;cursor:grab;user-select:none;-webkit-user-select:none;
+    touch-action:none;
+    left:${leftPct}%;top:${topPct}%;
     animation:float-kuku 4s ease-in-out infinite;
-    animation-delay:${Math.random()*3}s;
+    animation-delay:${Math.random() * 3}s;
+    transition:transform 0.2s;
   `;
+
   if (item.emoji === 'KUKU_IMG') {
     const si = document.createElement('img');
     si.src = KUKU_IMG_SRC;
-    si.style.cssText = 'width:60px;height:60px;object-fit:contain;';
+    si.style.cssText = 'width:60px;height:60px;object-fit:contain;pointer-events:none;';
+    si.draggable = false;
     sticker.appendChild(si);
   } else {
     sticker.textContent = item.emoji;
   }
-  sticker.title = item.name;
+  sticker.title = item.name + ' (드래그로 이동, 더블탭으로 제거)';
 
-  let dragging = false, ox=0, oy=0;
-  sticker.addEventListener('mousedown', e => {
-    dragging = true; sticker.style.cursor='grabbing';
-    ox = e.clientX - sticker.offsetLeft;
-    oy = e.clientY - sticker.offsetTop;
-  });
-  document.addEventListener('mousemove', e => {
+  // #12: 등장 애니메이션 (새로 추가될 때만)
+  if (withAnim) {
+    sticker.style.transform = 'scale(0)';
+    requestAnimationFrame(() => {
+      sticker.style.transition = 'transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1)';
+      sticker.style.transform = 'scale(1)';
+    });
+  }
+
+  // ── 새 배치는 저장 ──
+  if (!savedLayout) {
+    oceanLayout.push({ itemId: item.id, leftPct, topPct, instanceId });
+    saveDiary();
+  }
+
+  // ── 드래그 처리 (#4 모바일 터치 + #5 좌표 픽스 + #6 영역 제한) ──
+  let dragging = false;
+  let dragMoved = false; // 클릭과 드래그 구별
+  let startX = 0, startY = 0;       // 포인터 시작 좌표 (페이지 기준)
+  let startLeftPx = 0, startTopPx = 0; // 스티커 시작 위치 (오션 기준 px)
+
+  function getPoint(e) {
+    if (e.touches && e.touches[0]) return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    if (e.changedTouches && e.changedTouches[0]) return { x: e.changedTouches[0].clientX, y: e.changedTouches[0].clientY };
+    return { x: e.clientX, y: e.clientY };
+  }
+
+  function startDrag(e) {
+    dragging = true;
+    dragMoved = false;
+    sticker.style.cursor = 'grabbing';
+    sticker.style.zIndex = '10';
+    sticker.style.animation = 'none'; // 드래그 중엔 둥둥 멈춤
+    const p = getPoint(e);
+    startX = p.x;
+    startY = p.y;
+    startLeftPx = sticker.offsetLeft;
+    startTopPx = sticker.offsetTop;
+    if (e.cancelable) e.preventDefault();
+  }
+
+  function moveDrag(e) {
     if (!dragging) return;
-    sticker.style.left = (e.clientX - ox) + 'px';
-    sticker.style.top = (e.clientY - oy) + 'px';
+    const p = getPoint(e);
+    const dx = p.x - startX;
+    const dy = p.y - startY;
+    if (Math.abs(dx) > 4 || Math.abs(dy) > 4) dragMoved = true;
+
+    // #6: 영역(부모 ocean) 안으로 제한
+    const parent = ocean.getBoundingClientRect();
+    const w = sticker.offsetWidth;
+    const h = sticker.offsetHeight;
+    let newLeft = startLeftPx + dx;
+    let newTop = startTopPx + dy;
+    newLeft = Math.max(0, Math.min(newLeft, parent.width - w));
+    newTop = Math.max(0, Math.min(newTop, parent.height - h));
+
+    sticker.style.left = newLeft + 'px';
+    sticker.style.top = newTop + 'px';
+    if (e.cancelable) e.preventDefault();
+  }
+
+  function endDrag() {
+    if (!dragging) return;
+    dragging = false;
+    sticker.style.cursor = 'grab';
+    sticker.style.zIndex = '';
+    sticker.style.animation = `float-kuku 4s ease-in-out infinite`;
+
+    // 위치를 % 단위로 저장 (반응형 대응)
+    const parent = ocean.getBoundingClientRect();
+    if (parent.width > 0 && parent.height > 0) {
+      const newLeftPct = (sticker.offsetLeft / parent.width) * 100;
+      const newTopPct = (sticker.offsetTop / parent.height) * 100;
+      sticker.style.left = newLeftPct + '%';
+      sticker.style.top = newTopPct + '%';
+      const layoutItem = oceanLayout.find(l => l.instanceId === instanceId);
+      if (layoutItem) {
+        layoutItem.leftPct = newLeftPct;
+        layoutItem.topPct = newTopPct;
+        saveDiary();
+      }
+    }
+  }
+
+  sticker.addEventListener('mousedown', startDrag);
+  document.addEventListener('mousemove', moveDrag);
+  document.addEventListener('mouseup', endDrag);
+  sticker.addEventListener('touchstart', startDrag, { passive: false });
+  document.addEventListener('touchmove', moveDrag, { passive: false });
+  document.addEventListener('touchend', endDrag);
+
+  // ── 더블클릭/더블탭으로 제거 (#7~8 보조) ──
+  sticker.addEventListener('dblclick', () => removeStickerFromOcean(instanceId, sticker));
+  let lastTap = 0;
+  sticker.addEventListener('touchend', () => {
+    if (dragMoved) return; // 드래그였으면 무시
+    const now = Date.now();
+    if (now - lastTap < 350) removeStickerFromOcean(instanceId, sticker);
+    lastTap = now;
   });
-  document.addEventListener('mouseup', () => { dragging=false; sticker.style.cursor='grab'; });
 
   ocean.appendChild(sticker);
+}
+
+function removeStickerFromOcean(instanceId, stickerEl) {
+  oceanLayout = oceanLayout.filter(l => l.instanceId !== instanceId);
+  saveDiary();
+  // 사라지는 애니메이션
+  stickerEl.style.transition = 'transform 0.3s ease, opacity 0.3s ease';
+  stickerEl.style.transform = 'scale(0)';
+  stickerEl.style.opacity = '0';
+  setTimeout(() => {
+    stickerEl.remove();
+    if (oceanLayout.length === 0) {
+      const hint = document.getElementById('oceanHint');
+      if (hint) hint.style.display = 'block';
+    }
+  }, 300);
 }
 </script>
 </body>
