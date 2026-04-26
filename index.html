@@ -344,6 +344,14 @@ body {
   transition: all 0.2s;
   box-shadow: 0 4px 12px rgba(0,0,0,0.12);
 }
+/* 흰색 well은 흰 배경에서 보이도록 회색 테두리 */
+.color-well[data-color="#FFFFFF"] {
+  border: 3px solid #c4c4c4;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.18);
+}
+.color-well[data-color="#FFFFFF"].selected {
+  border-color: #c4c4c4;
+}
 .color-well:hover { transform: scale(1.18) translateY(-3px); }
 .color-well.selected {
   border-color: white;
@@ -546,6 +554,8 @@ body {
   display: grid; grid-template-columns: 1fr 240px; gap: 24px; align-items: start;
 }
 .mandala-svg-wrap { text-align: center; }
+#mandalaSvg path { touch-action: manipulation; }
+#mandalaSvg path:active { opacity: 1 !important; }
 .month-nav {
   display: flex; align-items: center; justify-content: center;
   gap: 14px; margin-bottom: 16px;
@@ -685,6 +695,7 @@ body {
   border-radius: 20px; padding: 18px 14px;
   text-align: center; cursor: pointer;
   border: 2px solid transparent; transition: all 0.25s;
+  position: relative;
 }
 .shop-item:hover {
   border-color: rgba(61,214,181,0.4);
@@ -702,6 +713,19 @@ body {
 .shop-item.locked:hover {
   transform: none; border-color: rgba(180,180,200,0.4);
   box-shadow: none;
+}
+.shop-owned-mini {
+  position: absolute;
+  top: 6px; right: 6px;
+  width: 24px; height: 24px;
+  background: var(--emerald);
+  color: white;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.78rem;
+  box-shadow: 0 2px 8px rgba(61,214,181,0.4);
+  pointer-events: none;
+  z-index: 2;
 }
 .shop-emoji { font-size: 2.4rem; margin-bottom: 10px; }
 .shop-name { font-family: var(--font-title); font-size: 0.88rem; color: var(--navy); margin-bottom: 6px; }
@@ -1444,20 +1468,75 @@ document.addEventListener('DOMContentLoaded', () => {
 // ============================================================
 const EMOTIONS = [
   { id:'joy',    emoji:'✨', label:'기쁨',  color:'#FFD700', textColor:'#7a6000' },
-  { id:'calm',   emoji:'🌊', label:'평온',  color:'#7EC8E3', textColor:'#2a6080' },
-  { id:'excited',emoji:'🎈', label:'설렘',  color:'#FF9A9E', textColor:'#7a2030' },
-  { id:'sad',    emoji:'☁️', label:'우울',  color:'#B0BEC5', textColor:'#3a4a50' },
-  { id:'angry',  emoji:'💢', label:'화남',  color:'#FF6B6B', textColor:'#7a1010' },
-  { id:'anxious',emoji:'🌀', label:'불안',  color:'#9C88FF', textColor:'#3a2080' },
-  { id:'tired',  emoji:'🔋', label:'피곤',  color:'#78909C', textColor:'#2a3a40' }
+  { id:'calm',   emoji:'🌊', label:'평온',  color:'#1FA8D8', textColor:'#0d4a6a' },
+  { id:'excited',emoji:'🎈', label:'설렘',  color:'#FF6B9D', textColor:'#7a2050' },
+  { id:'sad',    emoji:'☁️', label:'우울',  color:'#3A4A6A', textColor:'#ffffff' },
+  { id:'angry',  emoji:'💢', label:'화남',  color:'#FF3B3B', textColor:'#7a1010' },
+  { id:'anxious',emoji:'🌀', label:'불안',  color:'#7C4DFF', textColor:'#ffffff' },
+  { id:'tired',  emoji:'🔋', label:'피곤',  color:'#5C6B7A', textColor:'#ffffff' }
 ];
 
+// 18색 팔레트 (3×6 그리드, 옵션 C)
+// 1행: 선명한 따뜻한 4 + 청록 2
+// 2행: 차가운 3 + 어두운/특수 3 (네이비, 갈색, 회색)
+// 3행: 무채색 3 (검정, 흰색) + 파스텔 4
 const PALETTE_COLORS = [
-  '#FF6B6B','#FF9A9E','#FFD700','#FFB347','#FF7F5C',
-  '#7EC8E3','#3DD6B5','#96CEB4','#9C88FF','#B39DDB',
-  '#78909C','#B0BEC5','#1A3A4A','#2C7A6A','#4A90A4',
-  '#A8D8A8','#F8BBD9','#FFECB3','#E1F5FE','#F3E5F5'
+  '#FF3B3B','#FF6B9D','#FFA500','#FFD700','#3DD6B5','#5DB85A',
+  '#1FA8D8','#3D5AFE','#7C4DFF','#3A4A6A','#8B5A2B','#5C6B7A',
+  '#000000','#FFFFFF','#FFB3BA','#FFDFBA','#FFFFBA','#BAFFC9'
 ];
+
+// 색 hex → 한국어 이름 매핑 (mixColor 표시용)
+const COLOR_NAMES = {
+  '#FF3B3B':'선명한 빨강','#FF6B9D':'핫핑크','#FFA500':'선명한 주황',
+  '#FFD700':'선명한 노랑','#3DD6B5':'쿠쿠 청록','#5DB85A':'선명한 초록',
+  '#1FA8D8':'선명한 하늘','#3D5AFE':'선명한 파랑','#7C4DFF':'선명한 보라',
+  '#3A4A6A':'진한 네이비','#8B5A2B':'갈색','#5C6B7A':'회색',
+  '#000000':'검정','#FFFFFF':'흰색','#FFB3BA':'파스텔 핑크',
+  '#FFDFBA':'파스텔 살구','#FFFFBA':'파스텔 옐로','#BAFFC9':'파스텔 민트'
+};
+
+// hex 정규화 헬퍼 (#FF3B3B와 'rgb(255, 59, 59)' 양쪽 매칭용)
+function normalizeColor(c) {
+  if (!c) return '';
+  c = String(c).trim().toLowerCase();
+  if (c.startsWith('#')) {
+    const h = c.slice(1);
+    const r = parseInt(h.slice(0,2),16);
+    const g = parseInt(h.slice(2,4),16);
+    const b = parseInt(h.slice(4,6),16);
+    return `rgb(${r}, ${g}, ${b})`;
+  }
+  if (c.startsWith('rgb')) {
+    const m = c.match(/\d+/g);
+    if (m && m.length >= 3) return `rgb(${+m[0]}, ${+m[1]}, ${+m[2]})`;
+  }
+  return c;
+}
+
+// rgb(r,g,b) 또는 #hex → 가장 가까운 팔레트 색 이름 찾기
+function findColorName(c) {
+  if (!c) return '';
+  // 정확히 일치하는 팔레트 색이 있으면 그 이름
+  for (const hex of PALETTE_COLORS) {
+    if (normalizeColor(hex) === normalizeColor(c)) return COLOR_NAMES[hex] || '';
+  }
+  // 평균색이면 가장 가까운 색 + "혼합" 표기
+  const cn = normalizeColor(c);
+  const m = cn.match(/\d+/g);
+  if (!m || m.length < 3) return '';
+  const r1 = +m[0], g1 = +m[1], b1 = +m[2];
+  let nearest = null, minDist = Infinity;
+  for (const hex of PALETTE_COLORS) {
+    const h = hex.slice(1);
+    const r2 = parseInt(h.slice(0,2),16);
+    const g2 = parseInt(h.slice(2,4),16);
+    const b2 = parseInt(h.slice(4,6),16);
+    const dist = (r1-r2)**2 + (g1-g2)**2 + (b1-b2)**2;
+    if (dist < minDist) { minDist = dist; nearest = hex; }
+  }
+  return nearest ? `${COLOR_NAMES[nearest]} 빛` : '';
+}
 
 const QUESTIONS = [
   { q:'오늘 급식 메뉴 중 내 기분을 가장 좋게 만든 건 뭐였어?', cat:'🏫 현실 밀착형' },
@@ -1615,58 +1694,85 @@ function drawShape(shape, color, size=28) {
 
 
 // ============================================================
-// PRESCRIPTION DATA (AI 없이 룰 기반)
+// PRESCRIPTION DATA (GAS 실패 시 fallback, 시트와 동일한 7감정 × 9그룹)
 // ============================================================
 const PRESCRIPTION_DATA = {
   '기쁨': {
-    '어두운': { diag:'기쁜데 조금 복잡한 감정이 섞여있구나. 그래도 기쁨을 느꼈다는 것 자체가 소중해!', art:'좋아하는 색으로 하트를 크게 그려봐. 크면 클수록 좋아!', comfort:'복잡해도 기쁨은 기쁨이야 🌟', mission:'오늘 기분 좋았던 순간 딱 하나만 떠올려봐' },
-    '노랑': { diag:'햇살처럼 환한 기쁨이야! 가볍고 따뜻한 행복이 온몸을 감싸고 있구나', art:'노란색·금색으로 별이나 태양을 자유롭게 마음껏 그려봐', comfort:'네 웃음이 주변을 다 환하게 만들어 ☀️', mission:'오늘 고마웠던 사람에게 짧은 메시지 하나 보내봐' },
-    '빨강': { diag:'기쁨이 넘쳐서 온몸이 뜨겁게 달아오른 것 같아. 활기차고 에너지가 넘치는 하루!', art:'빨간색·주황색으로 쿠쿠를 힘차게 칠해봐. 붓질이 길수록 좋아!', comfort:'이 에너지, 오늘 하루 정말 멋지게 썼어 🌟', mission:'오늘 기분 좋았던 순간을 딱 한 줄만 적어봐' },
-    '파랑': { diag:'기쁘지만 조용하고 깊은 기쁨이야. 평화로운 만족감에 가까운 감정이구나', art:'파란색 계열로 잔잔한 바다를 번지듯이 그려봐', comfort:'이런 고요한 기쁨도 정말 소중해 🌊', mission:'오늘 나를 기쁘게 한 것 3가지를 떠올려봐' },
-    '초록': { diag:'자연처럼 싱그럽고 건강한 기쁨이야. 마음이 잘 자라고 있다는 신호야!', art:'초록 물감으로 식물이나 나뭇잎을 그려봐', comfort:'네 마음이 꽃처럼 피어나고 있어 🌿', mission:'내일 잠깐이라도 하늘이나 나무를 바라봐' },
-    '보라': { diag:'설레고 몽환적인 기쁨이야. 특별한 무언가가 마음을 두근거리게 했구나!', art:'핑크·보라 수채화로 꽃이나 반짝이는 것을 그려봐', comfort:'그 두근거림, 소중히 간직해 💜', mission:'오늘 두근거렸던 순간을 낙서로 표현해봐' },
-    '혼합': { diag:'여러 색이 섞인 것처럼 기쁨도 다양한 감정이 함께야. 풍부한 하루였구나!', art:'좋아하는 색 여러 개를 섞어서 마음대로 그려봐', comfort:'다채로운 감정을 느끼는 네가 멋져 🌈', mission:'오늘 하루를 색깔로 표현하면 뭐일지 생각해봐' }
+    '빨강':   { diag:'뜨겁고 활기찬 기쁨이야. 온몸에 에너지가 넘쳐서 달아오른 것 같아.', art:'빨강·주황색 물감으로 쿠쿠를 힘차게 칠해봐. 붓질이 길수록 좋아', comfort:'이 에너지, 오늘 하루 정말 멋지게 썼어 🌟', mission:'오늘 기분 좋았던 순간을 딱 한 줄로 일기에 적어봐' },
+    '노랑':   { diag:'햇살처럼 환하고 따뜻한 기쁨이야. 가볍고 포근한 행복이 온몸을 감싸고 있어.', art:'노란색·금색으로 별이나 태양을 자유롭게 그려봐', comfort:'네 웃음이 주변을 다 환하게 만들어 ☀️', mission:'오늘 고마웠던 사람에게 짧은 메시지 하나 보내봐' },
+    '초록':   { diag:'싱그럽고 건강한 기쁨이야. 마음이 잘 자라고 있다는 신호야!', art:'초록 물감으로 식물이나 나뭇잎을 그려봐', comfort:'네 마음이 꽃처럼 피어나고 있어 🌿', mission:'내일 잠깐이라도 하늘이나 나무를 바라봐' },
+    '파랑':   { diag:'조용하고 깊은 기쁨이야. 평화로운 만족감에 가까운 감정이구나.', art:'파란색 계열로 잔잔한 바다를 번지듯이 그려봐', comfort:'이런 고요한 기쁨도 정말 소중해 🌊', mission:'오늘 나를 기쁘게 한 것 3가지를 떠올려봐' },
+    '보라':   { diag:'몽환적이고 풍부한 기쁨이야. 마음이 깊고 섬세하게 충만한 상태야.', art:'보라색으로 꽃이나 우주를 상상해서 그려봐', comfort:'이 깊은 기쁨, 소중히 간직해 💜', mission:'오늘 느낀 감정을 그림이나 낙서로 표현해봐' },
+    '파스텔': { diag:'설레고 부드러운 기쁨이야. 마음이 솜사탕처럼 달콤하고 가벼워.', art:'핑크·연보라 수채화로 꽃이나 반짝이는 것을 그려봐', comfort:'그 두근거림, 마음껏 느껴도 괜찮아 🌸', mission:'설레는 것에 대해 친한 친구한테 이야기해봐' },
+    '흰색':   { diag:'맑고 순수한 기쁨이야. 잡생각 없이 깨끗하게 행복한 상태야.', art:'흰 종이에 연한 색으로 아주 가볍게 선을 그어봐', comfort:'이렇게 깨끗한 기쁨은 정말 귀해 ✨', mission:'오늘 하루 중 가장 좋았던 한 순간을 기억해봐' },
+    '어두운': { diag:'기쁨 속에 뭔가 복잡한 감정이 섞여있구나. 기쁘지만 온전히 즐기기 어려운 상태일 수도.', art:'어두운 배경에 밝은 색 점을 하나씩 찍어봐. 빛이 생겨나는 느낌으로', comfort:'복잡해도 괜찮아. 기쁨은 기쁨이야 💙', mission:'오늘 좋았던 것 딱 하나만 골라서 마음에 새겨봐' },
+    '혼합':   { diag:'다양한 감정이 뒤섞인 풍성한 기쁨이야. 색칠을 자유롭게 마음을 여러 겹으로 아름다워.', art:'여러 색을 자유롭게 섞어서 쿠쿠를 화려하게 칠해봐', comfort:'마음이 이렇게 풍성하다니, 멋지다 🌈', mission:'오늘의 기분을 색깔로 표현해 봐 더 표현해봐' }
   },
   '평온': {
-    '파랑': { diag:'잔잔한 바다처럼 마음이 고요해. 지금 이 순간 가장 건강한 상태야', art:'파란 물감을 물에 많이 희석해서 번지듯 칠해봐. 억지로 뭔가 그리지 않아도 돼', comfort:'이 평온함이 네 진짜 모습이야 🌊', mission:'오늘처럼 평온한 순간을 내일도 5분만 만들어봐' },
-    '초록': { diag:'숲속처럼 편안하고 안정된 하루였구나. 마음의 뿌리가 튼튼해지는 중이야', art:'초록 계열로 나무나 풀밭을 천천히 그려봐', comfort:'이런 안정감이 네 힘의 원천이야 🌿', mission:'내일 아침 창문 열고 바깥 소리 1분만 들어봐' },
-    '노랑': { diag:'따뜻하고 포근한 평온이야. 햇살 아래 낮잠 자는 것처럼 나른하게 행복한 상태', art:'밝은 색으로 동그란 것들을 자유롭게 그려봐', comfort:'이 나른한 행복도 충분히 누려도 돼 ☀️', mission:'오늘 나를 편안하게 해준 것 하나에 감사해봐' },
-    '어두운': { diag:'평온하지만 조금 무겁고 지쳐있구나. 쉬고 싶은 마음이 평온함으로 나온 것 같아', art:'진한 색으로 천천히 선만 그어봐. 힘 빼고 느릿느릿하게', comfort:'쉬고 싶을 때 쉬는 것도 용기야 💙', mission:'오늘 밤 평소보다 30분 일찍 자봐' },
-    '혼합': { diag:'여러 감정이 잘 어우러진 평온이야. 성숙하고 균형잡힌 하루를 보냈구나', art:'여러 색을 조화롭게 섞어서 원을 그려봐', comfort:'마음의 균형을 잡고 있는 네가 대단해 🌀', mission:'오늘 나에게 잘했다고 칭찬 한마디 해줘' }
+    '빨강':   { diag:'평온한데 약간 따뜻한 에너지가 함께 있어. 활기차지만 차분한 상태야.', art:'빨강을 물에 많이 희석해서 연하게 번지듯 칠해봐', comfort:'따뜻하고 차분한 너, 정말 좋아 💗', mission:'오늘처럼 균형잡힌 순간을 내일도 만들어봐' },
+    '노랑':   { diag:'따뜻하고 포근한 평온이야. 햇살 아래 낮잠 자는 것처럼 나른하게 행복한 상태야.', art:'밝은 색으로 동그란 것들을 자유롭게 그려봐', comfort:'이 나른한 행복도 충분히 누려도 돼 ☀️', mission:'오늘 나를 편안하게 해준 것 하나에 감사해봐' },
+    '초록':   { diag:'숲속처럼 편안하고 안정된 하루였구나. 마음의 뿌리가 튼튼해지는 중이야.', art:'초록 계열로 나무나 풀밭을 천천히 그려봐', comfort:'이런 안정감이 네 힘의 원천이야 🌿', mission:'내일 아침 창문 열고 바깥 소리 1분만 들어봐' },
+    '파랑':   { diag:'잔잔한 바다처럼 마음이 고요해. 지금 이 순간 가장 건강한 상태야.', art:'파란 물감을 물에 많이 희석해서 번지듯 칠해봐', comfort:'이 평온함이 네 진짜 모습이야 🌊', mission:'오늘처럼 평온한 순간을 내일도 5분만 만들어봐' },
+    '보라':   { diag:'깊고 신비로운 평온이야. 마음이 고요하면서도 풍부하게 채워진 상태야.', art:'보라색으로 달이나 밤하늘을 천천히 그려봐', comfort:'이런 깊은 평온, 정말 아름다워 💜', mission:'오늘 밤 하늘을 잠깐 바라봐' },
+    '파스텔': { diag:'부드럽고 포근한 평온이야. 마음이 솜구름 위에 앉은 것처럼 가볍고 편안해.', art:'파스텔 색으로 구름이나 꽃을 부드럽게 그려봐', comfort:'이렇게 부드러운 마음, 정말 좋아 🌸', mission:'좋아하는 음악 틀어놓고 잠시 쉬어봐' },
+    '흰색':   { diag:'맑고 투명한 평온이야. 마음이 깨끗하게 비워진 편안한 상태야.', art:'흰 종이에 아주 연하게 수채화를 번지듯 칠해봐', comfort:'이 고요함이 진짜 쉼이야 ✨', mission:'오늘 밤 조용히 눈 감고 하루를 돌아봐' },
+    '어두운': { diag:'평온하지만 조금 무겁고 지쳐있구나. 쉬고 싶은 마음이 평온함으로 나온 것 같아.', art:'진한 색으로 천천히 선만 그어봐. 힘 빼고 느릿느릿하게', comfort:'쉬고 싶을 때 쉬는 것도 용기야 💙', mission:'오늘 밤 평소보다 30분 일찍 자봐' },
+    '혼합':   { diag:'여러 감정이 균형있게 섞인 평온이야. 복잡하지만 안정된 상태야.', art:'여러 색을 조화롭게 섞어서 바다 풍경을 그려봐', comfort:'이렇게 균형잡힌 마음, 대단해 🌀', mission:'오늘의 평온함을 내일도 이어가봐' }
   },
   '설렘': {
-    '보라': { diag:'두근두근! 마음에 꽃이 피고 있어. 좋은 일이 기다리고 있나봐', art:'핑크로 하트나 꽃을 마음껏 그려봐. 크게 크게!', comfort:'그 설렘, 마음껏 느껴도 괜찮아 💗', mission:'설레는 그 일, 한 발짝 더 가까이 가봐' },
-    '노랑': { diag:'밝고 가벼운 설렘이야. 뭔가 좋은 게 시작되는 느낌!', art:'노란색으로 반짝이는 별들을 잔뜩 그려봐', comfort:'이 두근거림이 새로운 시작이야 ✨', mission:'설레는 것에 대해 친한 친구한테 이야기해봐' },
-    '빨강': { diag:'강렬하게 설레는 중이야! 심장이 빠르게 뛰고 있구나', art:'빨강·핑크로 폭죽처럼 터지는 모양을 그려봐', comfort:'이런 강렬한 설렘은 인생에 몇 번 없어, 소중해 💗', mission:'오늘 설레게 한 것을 사진으로 찍어둬봐' },
-    '혼합': { diag:'복합적인 설렘이야. 기대도 되고 걱정도 되는 복잡한 두근거림이구나', art:'여러 색으로 나비나 별을 그려봐', comfort:'설레는 마음 자체가 살아있다는 증거야 🌟', mission:'기대되는 것 딱 하나만 생각하며 자봐' }
+    '빨강':   { diag:'강렬하게 설레는 중이야! 심장이 빠르게 뛰고 있구나.', art:'빨강·핑크로 폭죽처럼 터지는 모양을 그려봐', comfort:'이런 강렬한 설렘은 인생에 몇 번 없어, 소중해 💗', mission:'오늘 설레게 한 것을 사진으로 찍어둬봐' },
+    '노랑':   { diag:'밝고 가벼운 설렘이야. 뭔가 좋은 게 시작되는 느낌!', art:'노란색으로 반짝이는 별들을 잔뜩 그려봐', comfort:'이 두근거림이 새로운 시작이야 ✨', mission:'설레는 것에 대해 친한 친구한테 이야기해봐' },
+    '초록':   { diag:'싱그럽고 생동감 넘치는 설렘이야. 새로운 시작 앞에 선 느낌!', art:'초록으로 새싹이나 봄 풍경을 그려봐', comfort:'이 생동감, 마음껏 느껴봐 🌿', mission:'설레는 그 일, 한 발짝 더 가까이 가봐' },
+    '파랑':   { diag:'차분하지만 가슴 속 깊이 설레는 상태야. 기대감이 조용히 차오르고 있어.', art:'파란색으로 하늘이나 수평선을 그려봐', comfort:'이런 깊은 설렘, 아름다워 🌊', mission:'기대되는 일을 메모해두봐' },
+    '보라':   { diag:'몽환적이고 신비로운 설렘이야. 마음이 두근거리면서도 꿈꾸는 것 같아.', art:'보라·핑크로 환상적인 풍경을 상상해서 그려봐', comfort:'그 신비로운 설렘, 소중히 간직해 💜', mission:'오늘 설레는 감정을 일기에 적어봐' },
+    '파스텔': { diag:'부드럽고 달콤한 설렘이야. 마음이 꽃처럼 살며시 피어나는 느낌!', art:'파스텔 핑크로 하트나 꽃을 마음껏 그려봐', comfort:'이 달콤한 설렘, 마음껏 즐겨봐 🌸', mission:'설레는 순간을 그림으로 표현해봐' },
+    '흰색':   { diag:'순수하고 투명한 설렘이야. 아무것도 더하지 않아도 두근거리는 감정이야.', art:'흰 바탕에 아주 연한 색으로 반짝임을 표현해봐', comfort:'이 순수한 설렘, 정말 예뻐 ✨', mission:'오늘 설레게 한 것을 마음속에 담아둬봐' },
+    '어두운': { diag:'설레지만 동시에 걱정도 되는 복잡한 감정이야. 기대와 불안이 함께 있어.', art:'어두운 배경에 밝은 별을 하나씩 그려봐', comfort:'설레는 마음이 있다는 게 중요해 💙', mission:'걱정되는 것 하나, 기대되는 것 하나 적어봐' },
+    '혼합':   { diag:'여러 감정이 뒤섞인 복잡한 설렘이야. 다양한 기대가 함께 있는 풍성한 상태야.', art:'여러 색을 섞어서 화려한 축제 같은 그림을 그려봐', comfort:'이 풍성한 설렘, 정말 멋져 🌈', mission:'설레는 모든 것들을 목록으로 적어봐' }
   },
   '우울': {
-    '어두운': { diag:'마음이 많이 무겁고 어두운 하루였구나. 이 감정을 색으로 표현한 것만으로도 대단해', art:'검정·회색으로 마음 속 무게를 종이에 마음껏 눌러 그어봐. 세게 눌러도 돼', comfort:'무거운 감정을 꺼내준 것만으로도 충분해 💙', mission:'내일 딱 한 가지만 — 좋아하는 음식 하나 먹어봐' },
-    '파랑': { diag:'파란 우울이야. 슬프지만 폭발하지 않는, 조용히 흘러내리는 감정이구나', art:'파란 물감을 위에서 아래로 흘려봐. 눈물처럼. 억지로 멈추지 않아도 돼', comfort:'흘러내리는 감정도 결국엔 바다가 돼 🌊', mission:'오늘 울고 싶으면 울어도 돼. 참지 않아도 돼' },
-    '보라': { diag:'우울하지만 그 안에 민감하고 섬세한 감수성이 있어. 예술가들이 자주 느끼는 감정이야', art:'보라·남색으로 밤하늘이나 달을 그려봐', comfort:'이 감수성이 너를 특별하게 만들어 💜', mission:'좋아하는 노래 하나 틀어놓고 가만히 들어봐' },
-    '빨강': { diag:'우울한데 화도 나는, 복잡한 감정이야. 억울하거나 답답한 마음이 섞여있을 수 있어', art:'빨강·검정을 섞어서 힘껏 종이를 채워봐. 형태 없어도 돼', comfort:'화나고 슬픈 게 동시에 느껴져도 괜찮아 🌊', mission:'오늘 속상한 것 딱 한 줄만 적고 종이를 구겨봐' },
-    '혼합': { diag:'여러 감정이 뒤섞인 우울이야. 나도 내 마음이 뭔지 잘 모를 때가 있어. 그래도 괜찮아', art:'여러 색을 섞어서 마음대로 번지게 해봐', comfort:'모르는 감정도 느끼는 중이야, 괜찮아 💙', mission:'오늘 딱 한 사람한테 연락해봐. 안부라도' }
+    '빨강':   { diag:'우울한데 화도 나는, 복잡한 감정이야. 억울하거나 답답한 마음이 섞여있을 수 있어.', art:'빨강·검정을 섞어서 힘껏 종이를 채워봐. 형태 없어도 돼', comfort:'화나고 슬픈 게 동시에 느껴져도 괜찮아 💙', mission:'오늘 속상한 것 딱 한 줄만 적고 종이를 구겨봐' },
+    '노랑':   { diag:'우울하지만 그 안에 따뜻함을 찾으려는 마음이 있어. 힘들어도 빛을 찾고 있어.', art:'노란색으로 작은 불꽃을 그려봐. 꺼지지 않는 불꽃', comfort:'힘들어도 빛을 찾으려는 너, 대단해 ✨', mission:'오늘 나에게 작은 선물 하나 해줘' },
+    '초록':   { diag:'우울하지만 회복하려는 의지가 보여. 자연처럼 다시 자라나려는 중이야.', art:'초록으로 새싹이나 작은 식물을 그려봐', comfort:'쉬고 나면 더 강하게 자랄 거야 🌿', mission:'오늘 밤 좋아하는 것 하나만 하고 자봐' },
+    '파랑':   { diag:'파란 우울이야. 슬프지만 폭발하지 않는, 조용히 흘러내리는 감정이구나.', art:'파란 물감을 위에서 아래로 흘려봐. 눈물처럼. 억지로 멈추지 않아도 돼', comfort:'흘러내리는 감정도 결국엔 바다가 돼 🌊', mission:'오늘 울고 싶으면 울어도 돼. 참지 않아도 돼' },
+    '보라':   { diag:'우울하지만 그 안에 민감한 감수성이 자주 느끼는 감정이야. 예술가들이 자주 느끼는 감정이야.', art:'보라·남색으로 밤하늘이나 달을 그려봐', comfort:'이 감수성이 너를 특별하게 만들어 💜', mission:'좋아하는 노래 하나 틀어놓고 가만히 들어봐' },
+    '파스텔': { diag:'우울하지만 부드럽고 여린 감정이야. 마음이 많이 여리고 상처받기 쉬운 상태야.', art:'파스텔 색으로 부드러운 선을 천천히 그어봐', comfort:'여린 마음도 소중해. 잘 보호해줘 🌸', mission:'따뜻한 음료 한 잔 마시면서 쉬어봐' },
+    '흰색':   { diag:'텅 빈 것 같은 우울이야. 아무 감정도 안 느껴지는 무감각한 상태일 수 있어.', art:'흰 종이에 아주 연하게 자신의 이름을 써봐', comfort:'존재하는 것만으로도 충분해 💙', mission:'오늘 딱 한 가지만 — 좋아하는 음식 하나 먹어봐' },
+    '어두운': { diag:'마음이 많이 무겁고 어두운 하루였구나. 이 감정을 색으로 표현한 것만으로도 대단해.', art:'검정·회색으로 마음 속 무게를 종이에 마음껏 눌러 그어봐. 세게 눌러도 돼', comfort:'무거운 감정을 꺼내준 것만으로도 충분해 💙', mission:'내일 딱 한 가지만 — 좋아하는 음식 하나 먹어봐' },
+    '혼합':   { diag:'여러 감정이 뒤섞인 복잡한 우울이야. 딱 하나로 표현하기 힘들 수 있어.', art:'여러 색을 섞어서 마음속을 표현해봐. 형태 없어도 괜찮아', comfort:'복잡한 감정도 네 것이야 💙', mission:'지금 가장 힘든 것 딱 하나만 적어봐' }
   },
   '화남': {
-    '빨강': { diag:'뜨겁고 강한 분노야. 에너지가 넘쳐서 터질 것 같은 상태구나', art:'빨간 물감을 강하게 두드리듯 찍어봐. 붓 대신 손가락도 좋아', comfort:'화나는 건 당연해. 네 감정은 틀리지 않았어 💙', mission:'내일 체육시간이나 쉬는 시간에 몸을 크게 움직여봐' },
-    '어두운': { diag:'차갑고 단단한 분노야. 오래 쌓인 화가 굳어진 것 같아. 많이 힘들었겠다', art:'검정으로 뾰족하거나 각진 모양을 그어봐. 힘줘도 돼', comfort:'오래 참아왔구나. 이제 조금씩 꺼내도 돼 💙', mission:'오늘 혼자 있는 시간 10분만 만들어봐' },
-    '주황': { diag:'화가 나지만 조금 식어가고 있어. 답답하고 억울한 감정이 섞여있구나', art:'주황·빨강을 섞어서 불꽃처럼 위로 올라가는 선을 그어봐', comfort:'억울한 마음, 충분히 이해해 🔥', mission:'오늘 화나게 한 상황을 딱 한 줄만 적어봐' },
-    '노랑': { diag:'화가 나는데 밝은 색을 선택했네. 화를 잘 조절하고 있거나 이미 풀리고 있는 중이야', art:'노란색으로 태양을 그리고 주변에 빨간 선을 더해봐', comfort:'감정을 잘 다스리고 있어, 대단해 ☀️', mission:'오늘 나 스스로 잘했다고 칭찬 한마디 해봐' },
-    '혼합': { diag:'화가 여러 감정과 뒤섞여 있어. 복잡한 하루였구나', art:'마음속 화를 선으로 마음껏 그어봐. 어떤 모양이든 괜찮아', comfort:'복잡한 감정도 네 것이야, 소중해 💙', mission:'오늘 좋아하는 것 하나만 해봐. 기분 전환을 위해' }
+    '빨강':   { diag:'뜨겁고 강한 분노야. 에너지가 넘쳐서 터질 것 같은 상태구나.', art:'빨간 물감을 강하게 두드리듯 찍어봐. 붓 대신 손가락도 좋아', comfort:'화나는 건 당연해. 네 감정은 틀리지 않았어 💙', mission:'내일 체육시간이나 쉬는 시간에 몸을 크게 움직여봐' },
+    '노랑':   { diag:'화가 나지만 이미 조금 식어가고 있어. 화를 잘 조절하고 있는 상태야.', art:'노란색으로 태양을 그리고 주변에 빨간 선을 더해봐', comfort:'감정을 잘 다스리고 있어, 대단해 ☀️', mission:'오늘 나 스스로 잘했다고 칭찬 한마디 해봐' },
+    '초록':   { diag:'화가 나지만 그 안에 성장하려는 마음이 있어. 화를 에너지로 바꾸고 있어.', art:'초록으로 강하게 자라나는 나무를 그려봐', comfort:'화를 성장의 에너지로 쓰다니, 멋져 🌿', mission:'화나게 한 상황에서 배울 점이 있는지 생각해봐' },
+    '파랑':   { diag:'차갑고 단단한 분노야. 오래 쌓인 화가 굳어진 것 같아.', art:'검정으로 뾰족하거나 각진 모양을 그어봐. 힘줘도 돼', comfort:'오래 참아왔구나. 이제 조금씩 꺼내도 돼 💙', mission:'오늘 혼자 있는 시간 10분만 만들어봐' },
+    '보라':   { diag:'화가 나지만 복잡하고 깊은 감정이야. 상처와 분노가 함께 있는 것 같아.', art:'보라·빨강을 섞어서 강렬한 감정을 표현해봐', comfort:'복잡한 감정도 다 괜찮아 💜', mission:'오늘 화나게 한 상황을 글로 적어봐' },
+    '파스텔': { diag:'화가 나지만 부드럽게 표현하고 있어. 감정을 잘 조절하고 있는 상태야.', art:'파스텔 색으로 화난 감정을 부드럽게 그려봐', comfort:'감정을 부드럽게 표현하는 너, 대단해 🌸', mission:'오늘 화났던 상황을 좋게 해결할 방법을 생각해봐' },
+    '흰색':   { diag:'화가 나지만 이미 화가 가라앉았어. 차분하게 감정을 다스리고 있는 상태야.', art:'흰 종이에 화난 감정을 아주 가볍게 표현해봐', comfort:'차분하게 감정을 다스리는 너, 멋져 ✨', mission:'오늘 나를 어떻게 해결했는지 돌아봐' },
+    '어두운': { diag:'차갑고 깊은 분노야. 많이 쌓이고 억눌러온 화가 있는 것 같아.', art:'검정으로 강하게 종이를 채워봐. 마음껏 눌러도 돼', comfort:'오래 참아온 거 알아. 이제 조금씩 꺼내도 돼 💙', mission:'오늘 화나게 한 것 딱 하나만 적어봐' },
+    '혼합':   { diag:'여러 감정이 뒤섞인 복잡한 분노야. 화, 슬픔, 억울함이 함께 있을 수 있어.', art:'여러 색을 강하게 섞어서 감정을 표현해봐', comfort:'복잡한 감정 다 괜찮아. 다 네 것이야 💙', mission:'지금 가장 화나는 것 딱 하나만 적어봐' }
   },
   '불안': {
-    '어두운': { diag:'마음이 많이 무겁고 불안하구나. 걱정되는 게 머릿속을 가득 채우고 있을 것 같아', art:'검정으로 소용돌이를 그리고, 그 안에 파란 점을 하나 찍어봐. 그게 바로 너야', comfort:'불안해도 괜찮아. 쿠쿠가 옆에 있어 🌊', mission:'지금 걱정되는 것 딱 하나만 종이에 적고 접어봐' },
-    '보라': { diag:'예민하고 섬세한 불안이야. 이것저것 많이 신경 쓰이는 하루였구나', art:'보라색으로 물결 모양을 반복해서 그어봐. 리듬감 있게', comfort:'예민한 게 나쁜 게 아니야, 섬세한 거야 💜', mission:'오늘 밤 자기 전에 깊게 숨 3번만 쉬어봐' },
-    '파랑': { diag:'차갑고 조용한 불안이야. 겉으론 괜찮아 보이지만 속은 떨리고 있는 것 같아', art:'파란색으로 네모를 그리고 그 안을 천천히 채워봐', comfort:'겉으로 티 안 내고 버텨온 거 알아 💙', mission:'내일 한 명한테만 "나 좀 힘들어"라고 말해봐' },
-    '빨강': { diag:'불안이 화처럼 느껴지는 상태야. 긴장이 극도로 높아져 있어', art:'빨강으로 강하게 선을 긋고, 끝에서 둥글게 마무리해봐', comfort:'긴장해도 괜찮아. 그만큼 열심히 하고 있다는 뜻이야 💙', mission:'지금 어깨에 힘 빼봐. 딱 10초만' },
-    '혼합': { diag:'여러 걱정이 뒤섞인 불안이야. 머릿속이 복잡하게 느껴지겠다', art:'여러 색으로 구름 모양을 그리고, 그 아래 무지개를 그려봐', comfort:'복잡한 마음도 결국 지나가 🌈', mission:'지금 가장 걱정되는 것 딱 하나만 골라봐' }
+    '빨강':   { diag:'불안이 화처럼 느껴지는 상태야. 긴장이 극도로 높아져 있어.', art:'빨강으로 강하게 선을 긋고, 끝에서 둥글게 마무리해봐', comfort:'긴장해도 괜찮아. 그만큼 열심히 하고 있다는 뜻이야 💙', mission:'지금 어깨에 힘 빼봐. 딱 10초만' },
+    '노랑':   { diag:'불안하지만 긍정적인 에너지가 함께 있어. 긴장되지만 잘 해낼 수 있을 것 같아.', art:'노란색으로 태양을 그리고 주변에 부드러운 선을 더해봐', comfort:'불안도 잘 해낼 수 있다고 믿어 ☀️', mission:'지금 걱정되는 것 딱 하나만 종이에 적고 접어봐' },
+    '초록':   { diag:'불안하지만 그 안에 성장하려는 마음이 있어. 새로운 것 앞에서 느끼는 건강한 긴장이야.', art:'초록으로 뿌리 깊은 나무를 그려봐', comfort:'새로운 것 앞의 긴장, 성장의 신호야 🌿', mission:'지금 할 수 있는 것 하나만 집중해봐' },
+    '파랑':   { diag:'차갑고 조용한 불안이야. 겉으론 괜찮아 보이지만 속은 떨리고 있는 것 같아.', art:'파란색으로 네모를 그리고 그 안을 천천히 채워봐', comfort:'겉으로 티 안 내고 버텨온 거 알아 💙', mission:'내일 한 명한테만 "나 좀 힘들어"라고 말해봐' },
+    '보라':   { diag:'예민하고 섬세한 불안이야. 이것저것 많이 신경 쓰이는 하루였구나.', art:'보라색으로 물결 모양을 반복해서 그어봐. 리듬감 있게', comfort:'예민한 게 나쁜 게 아니야, 섬세한 거야 💜', mission:'오늘 밤 자기 전에 깊게 숨 3번만 쉬어봐' },
+    '파스텔': { diag:'부드럽고 여린 불안이야. 마음이 예민하고 상처받기 쉬운 상태야.', art:'파스텔 색으로 부드러운 물결을 그려봐', comfort:'여린 마음도 소중해 🌸', mission:'따뜻한 것을 안고 잠시 쉬어봐' },
+    '흰색':   { diag:'텅 빈 것 같은 불안이야. 뭐가 불안한지 정확히 모르는 막연한 상태일 수 있어.', art:'흰 종이에 지금 마음을 아주 가볍게 표현해봐', comfort:'막연한 불안도 괜찮아. 지나갈 거야 ✨', mission:'지금 이 순간에만 집중해봐' },
+    '어두운': { diag:'마음이 많이 무겁고 불안하구나. 뭔가 걱정되는 게 머릿속을 가득 채우고 있을 것 같아.', art:'검정으로 소용돌이를 그리고, 그 안에 파란 점을 하나 찍어봐. 그게 바로 너야', comfort:'불안해도 괜찮아. 쿠쿠가 옆에 있어 🌊', mission:'지금 걱정되는 것 딱 하나만 종이에 적고 접어봐' },
+    '혼합':   { diag:'여러 걱정이 뒤섞인 복잡한 불안이야. 한 번에 너무 많은 것들이 신경 쓰이고 있어.', art:'여러 색을 섞어서 지금 마음을 표현해봐', comfort:'한 번에 다 해결 안 해도 돼 💙', mission:'지금 가장 걱정되는 것 딱 하나만 골라봐' }
   },
   '피곤': {
-    '어두운': { diag:'몸도 마음도 완전히 방전된 상태야. 정말 많이 지쳐있구나', art:'아무것도 그리지 않아도 돼. 그냥 붓에 물감 묻혀서 종이에 닿게만 해봐', comfort:'오늘 하루 버텨준 것만으로도 충분해 💙', mission:'오늘은 그냥 쉬어. 정말로' },
-    '파랑': { diag:'차갑게 식은 피곤함이야. 감정도 에너지도 다 소진된 것 같아', art:'파란색으로 수평선을 그어봐. 길고 천천히', comfort:'다 쏟아냈으니까 이제 채울 일만 남았어 🌊', mission:'내일 점심시간에 10분만 눈 감고 있어봐' },
-    '노랑': { diag:'지쳤는데 밝은 색을 골랐네. 힘들어도 포기하지 않으려는 마음이 보여', art:'노란색으로 작은 불꽃을 그려봐. 꺼지지 않는 불꽃', comfort:'힘들어도 빛을 찾으려는 너, 대단해 ✨', mission:'내일 나한테 작은 선물 하나 해줘 (좋아하는 간식도 OK)' },
-    '초록': { diag:'지쳤지만 회복하려는 의지가 보여. 자연처럼 다시 자라나려는 중이야', art:'초록으로 새싹이나 작은 식물을 그려봐', comfort:'쉬고 나면 더 강하게 자랄 거야 🌿', mission:'오늘 밤 좋아하는 것 하나만 하고 자봐' },
-    '혼합': { diag:'여러 감정이 피곤함과 뒤섞여 있어. 복잡한 하루를 버텨냈구나', art:'힘 빼고 물감을 종이에 자연스럽게 번지게 해봐', comfort:'오늘 하루도 정말 수고했어 💙', mission:'지금 당장 스트레칭 딱 1분만 해봐' }
+    '빨강':   { diag:'지쳤지만 아직 에너지가 남아있는 상태야.', art:'빨강을 약하게 흘려봐. 힘 빼고 느리게', comfort:'무리하지 마. 잠깐 쉬어도 괜찮아 💙', mission:'오늘은 하던 것 멈추고 쉬어봐' },
+    '노랑':   { diag:'지쳤지만 밝은 색을 골랐네. 힘들어도 포기하지 않으려는 마음이 보여.', art:'노란색으로 작은 불꽃을 그려봐. 꺼지지 않는 불꽃', comfort:'힘들어도 빛을 찾으려는 너, 대단해 ✨', mission:'내일 나한테 작은 선물 하나 해줘' },
+    '초록':   { diag:'지쳤지만 회복하려는 의지가 보여. 자연처럼 다시 자라나려는 중이야.', art:'초록으로 새싹이나 작은 식물을 그려봐', comfort:'쉬고 나면 더 강하게 자랄 거야 🌿', mission:'오늘 밤 좋아하는 것 하나만 하고 자봐' },
+    '파랑':   { diag:'차갑게 식은 피곤함이야. 감정도 에너지도 다 소진된 것 같아.', art:'파란색으로 수평선을 그어봐. 길고 천천히', comfort:'다 쏟아냈으니까 이제 채울 일만 남았어 🌊', mission:'내일 점심시간에 10분만 눈 감고 있어봐' },
+    '보라':   { diag:'감성적으로 지쳤어. 너무 많이 느끼고 피곤한 상태야.', art:'보라색으로 달을 그리고 별을 하나씩 채워봐', comfort:'많이 느끼는 만큼 많이 지치는 거야. 쉬어도 돼 💜', mission:'오늘 음악 끄고 좋아하는 것만 해봐' },
+    '파스텔': { diag:'부드럽게 지쳤어. 마음이 여리고 쉽게 지치는 상태야.', art:'파스텔 색으로 구름이나 베개를 그려봐', comfort:'여린 마음도 소중해. 충분히 쉬어도 돼 🌸', mission:'오늘 일찍 자봐. 그게 최고의 회복이야' },
+    '흰색':   { diag:'완전히 비워진 피곤함이야. 아무것도 하고 싶지 않은 상태야.', art:'아무것도 그리지 않아도 돼. 그냥 붓에 물감 묻혀서 종이에 닿게만 해봐', comfort:'오늘 하루 버텨준 것만으로도 충분해 💙', mission:'오늘은 그냥 쉬어. 정말로' },
+    '어두운': { diag:'몸도 마음도 완전히 방전된 상태야. 정말 많이 지쳐있구나.', art:'아무것도 그리지 않아도 돼. 그냥 붓에 물감 묻혀서 종이에 닿게만 해봐', comfort:'오늘 하루 버텨준 것만으로도 충분해 💙', mission:'오늘은 그냥 쉬어. 정말로' },
+    '혼합':   { diag:'여러 이유로 지쳤어. 몸도 마음도 다 힘든 복잡한 피곤함이야.', art:'여러 색을 흐리게 섞어서 지금 상태를 표현해봐', comfort:'다 힘든 거 알아. 조금씩 쉬어가도 돼 💙', mission:'지금 당장 할 수 있는 가장 쉬운 것 하나만 해봐' }
   }
 };
 
@@ -1683,14 +1789,33 @@ function getColorCategory(hexColor) {
     g = parseInt(hex.slice(2,4),16)||0;
     b = parseInt(hex.slice(4,6),16)||0;
   }
-  const brightness = (r*299 + g*587 + b*114) / 1000;
-  if (brightness < 55) return '어두운';
-  if (r > 180 && g < 100 && b < 100) return '빨강';
-  if (r > 200 && g > 100 && b < 80)  return '주황';
-  if (r > 200 && g > 180 && b < 80)  return '노랑';
-  if (r < 120 && g > 150 && b < 120) return '초록';
-  if (r < 100 && g < 130 && b > 160) return '파랑';
-  if (r > 130 && g < 120 && b > 150) return '보라';
+  // RGB → HSV 변환
+  const rN = r/255, gN = g/255, bN = b/255;
+  const max = Math.max(rN, gN, bN), min = Math.min(rN, gN, bN);
+  const val = max;
+  const sat = max === 0 ? 0 : (max - min) / max;
+  let hue = 0;
+  if (max !== min) {
+    const d = max - min;
+    if (max === rN) hue = ((gN - bN) / d + (gN < bN ? 6 : 0)) / 6;
+    else if (max === gN) hue = ((bN - rN) / d + 2) / 6;
+    else hue = ((rN - gN) / d + 4) / 6;
+  }
+  hue *= 360;
+
+  // 시트의 9개 그룹과 일치하는 분류 (빨강/노랑/초록/파랑/보라/파스텔/흰색/어두운/혼합)
+  // 1. 거의 흰색 (밝고 채도 매우 낮음)
+  if (val > 0.95 && sat < 0.15) return '흰색';
+  // 2. 어두움 (검정, 진한 네이비, 갈색, 회색 등 명도 낮은 색)
+  if (val < 0.55) return '어두운';
+  // 3. 파스텔 (밝지만 채도 낮음/중간 — 흰색+선명색 혼합 결과 포함)
+  if (val > 0.85 && sat < 0.45) return '파스텔';
+  // 4. 색조 기반 5가지 (주황은 노랑에, 핑크는 빨강에 흡수)
+  if (hue < 20 || hue >= 340) return '빨강';
+  if (hue >= 20 && hue < 70)  return '노랑';
+  if (hue >= 70 && hue < 165) return '초록';
+  if (hue >= 165 && hue < 250) return '파랑';
+  if (hue >= 250 && hue < 340) return '보라';
   return '혼합';
 }
 
@@ -1762,8 +1887,10 @@ async function syncFromServer() {
   });
   if (result.success && result.records) {
     result.records.forEach(r => {
+      // 서버는 감정 label만 보내주므로, EMOTIONS 배열에서 전체 정보 찾기
+      const fullEmotion = EMOTIONS.find(e => e.label === r.emotion) || { id:'', emoji:'', label: r.emotion, color:'' };
       diary[r.date] = {
-        emotion:   { emoji: '', label: r.emotion },
+        emotion:   { id: fullEmotion.id, emoji: fullEmotion.emoji, label: fullEmotion.label, color: fullEmotion.color },
         colors:    [r.colorHex],
         mixColor:  r.colorHex,
         temp:      r.temperature,
@@ -1776,14 +1903,25 @@ async function syncFromServer() {
     localStorage.setItem('kukku_diary', JSON.stringify(diary));
   }
 
+  // 스탬프 동기화 (클라이언트 우선)
+  // 서버에는 "총 적립 횟수"가 있지만 클라이언트에는 "구매 차감 후 잔액"이 있음
+  // → 첫 로그인(localStorage 비어있음)일 때만 서버 값을 가져오고, 그 외엔 로컬 값 유지
   const stampResult = await gasRequest({ action: 'getStamps', email: currentUser.email });
   if (stampResult.success) {
-    stamps = stampResult.totalStamps || 0;
-    localStorage.setItem('kukku_stamps', stamps);
+    const localStamps = parseInt(localStorage.getItem('kukku_stamps') || '0');
+    const localOwned = JSON.parse(localStorage.getItem('kukku_owned') || '[]');
+    const isFirstLogin = (localStamps === 0 && localOwned.length === 0);
+    if (isFirstLogin) {
+      // 첫 로그인이면 서버 값으로 초기화
+      stamps = stampResult.totalStamps || 0;
+      localStorage.setItem('kukku_stamps', stamps);
+    }
+    // 그 외엔 로컬 값 그대로 유지 (구매 차감 보존)
   }
  updateStats();
   renderMandala();
   renderCalendar();
+  renderShop();  // ⑤ sync 후 상점 다시 렌더 (서버에서 받아온 기록 반영)
 }
 window.onload = async () => {
   initBubbles();
@@ -1807,21 +1945,28 @@ window.onload = async () => {
   }
 };
 
+// 디바운스 타이머 (④ 동시성 안전)
+let _saveStampsTimer = null;
 function saveDiary() {
   localStorage.setItem('kukku_diary', JSON.stringify(diary));
   localStorage.setItem('kukku_stamps', stamps);
   localStorage.setItem('kukku_owned', JSON.stringify(ownedItems));
   localStorage.setItem('kukku_ocean', JSON.stringify(oceanLayout));
 
-  // 서버에도 스탬프 저장
+  // 서버에도 스탬프 저장 (디바운스: 빠른 연속 호출은 마지막만 전송)
   if (currentUser) {
-    gasRequest({
-      action: 'saveStamps',
-      email: currentUser.email,
-      nickname: currentUser.nickname,
-      stamps: stamps,
-      ownedItems: ownedItems
-    });
+    if (_saveStampsTimer) clearTimeout(_saveStampsTimer);
+    _saveStampsTimer = setTimeout(() => {
+      gasRequest({
+        action: 'saveStamps',
+        email: currentUser.email,
+        nickname: currentUser.nickname,
+        stamps: stamps,
+        ownedItems: ownedItems
+      }).then(r => {
+        if (r && !r.success) console.log('[saveStamps] 서버 저장 실패:', r.message);
+      }).catch(e => console.log('[saveStamps] 네트워크 오류:', e));
+    }, 400);
   }
 }
 
@@ -1975,6 +2120,8 @@ function initColorWells() {
     const w = document.createElement('div');
     w.className = 'color-well';
     w.style.background = c;
+    w.dataset.color = c.toUpperCase();
+    w.title = COLOR_NAMES[c] || c;
     w.onclick = () => addColor(c, w);
     wrap.appendChild(w);
   });
@@ -1986,6 +2133,8 @@ function initColorWells() {
     const d = document.createElement('div');
     d.className = 'canvas-color-dot' + (c === paintColor ? ' active' : '');
     d.style.background = c;
+    d.dataset.color = c.toUpperCase();
+    d.title = COLOR_NAMES[c] || c;
     d.onclick = () => {
       paintColor = c;
       document.querySelectorAll('.canvas-color-dot').forEach(x => x.classList.remove('active'));
@@ -2005,8 +2154,6 @@ function selectEmotion(emo, btn) {
   const ef = document.getElementById('emotionFloat');
   ef.style.display = 'block';
   ef.textContent = emo.emoji;
-  // kuku body color hint
-  const body = document.querySelector('#step-1 ellipse');
 }
 
 // ============================================================
@@ -2015,8 +2162,12 @@ function selectEmotion(emo, btn) {
 function addColor(c, well) {
   if (selectedColors.includes(c)) {
     selectedColors = selectedColors.filter(x => x !== c);
+    const target = normalizeColor(c);
     document.querySelectorAll('.color-well').forEach(w => {
-      if (w.style.background === c || w.style.backgroundColor === c) w.classList.remove('selected');
+      if (normalizeColor(w.style.background) === target ||
+          normalizeColor(w.style.backgroundColor) === target) {
+        w.classList.remove('selected');
+      }
     });
   } else {
     selectedColors.push(c);
@@ -2046,7 +2197,15 @@ function updateMixColor() {
   document.getElementById('mixPreview').style.background = currentMixColor;
   // update step3 preview
   document.getElementById('step3ColorPreview').style.background = currentMixColor;
-  document.getElementById('step3ColorName').textContent = currentMixColor;
+  // 색 이름은 한국어로 (선택 1개면 그대로, 여러 개면 평균색의 가까운 이름)
+  let label;
+  if (selectedColors.length === 1) {
+    label = COLOR_NAMES[selectedColors[0]] || currentMixColor;
+  } else {
+    const nearest = findColorName(currentMixColor);
+    label = nearest ? `${nearest} (${selectedColors.length}색 혼합)` : `${selectedColors.length}색 혼합`;
+  }
+  document.getElementById('step3ColorName').textContent = label;
 }
 
 function renderSelectedChips() {
@@ -2059,8 +2218,12 @@ function renderSelectedChips() {
     chip.title = '클릭해서 제거';
     chip.onclick = () => {
       selectedColors = selectedColors.filter(x => x !== c);
+      const target = normalizeColor(c);
       document.querySelectorAll('.color-well').forEach(w => {
-        if (w.style.backgroundColor.replace(/\s/g,'') === c || w.style.background === c) w.classList.remove('selected');
+        if (normalizeColor(w.style.background) === target ||
+            normalizeColor(w.style.backgroundColor) === target) {
+          w.classList.remove('selected');
+        }
       });
       updateMixColor();
       renderSelectedChips();
@@ -2251,7 +2414,7 @@ function renderMandala() {
   svg.innerHTML = '';
   const cx=250, cy=250, OR=228, IR=130;
 
-  // defs - 그림자 필터
+  // defs - 그림자 필터 + 흰색 꽃잎용 외곽선
   const defs = document.createElementNS('http://www.w3.org/2000/svg','defs');
   defs.innerHTML = `
     <filter id="petal-shadow" x="-20%" y="-20%" width="140%" height="140%">
@@ -2272,6 +2435,10 @@ function renderMandala() {
   outerRing.setAttribute('stroke-width','8');
   svg.appendChild(outerRing);
 
+  // 한 번의 순회로 꽃잎 + 범례 + 기록 수 모두 처리 (성능 ⑤ 개선)
+  const usedEmotions = new Map();  // emotion.label → emotion 객체
+  let recCount = 0;
+
   for (let day = 1; day <= days; day++) {
     const ds = `${viewYear}-${String(viewMonth+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
     const rec = diary[ds];
@@ -2280,50 +2447,69 @@ function renderMandala() {
     const gap = 0.025;
     const midA = (sa+ea)/2;
 
-    // 꽃잎 모양 곡선 패스
-    const petalColor = rec?.mixColor || (rec?.colors?.[0]) || 'rgba(210,240,235,0.4)';
-    const hasRecord = rec && rec.colors && rec.colors.length > 0;
+    const hasRecord = !!rec;
 
     if (hasRecord) {
-      const colors = rec.mixColor ? [rec.mixColor, ...rec.colors.slice(0,1)] : [rec.colors[0]];
-      const span = ea - sa - gap*2;
-      const sw = span / colors.length;
-      colors.forEach((color, ci) => {
-        const a1 = sa + gap + ci*sw, a2 = a1 + sw - 0.004;
-        const el = document.createElementNS('http://www.w3.org/2000/svg','path');
-        el.setAttribute('d', petalPath(cx,cy,IR+4,OR-2,a1,a2));
-        el.setAttribute('fill', color);
-        el.setAttribute('opacity','0.9');
-        el.setAttribute('filter','url(#petal-shadow)');
-        el.style.cursor = 'pointer';
-        el.style.transition = 'opacity 0.2s';
-        el.addEventListener('mouseenter', () => el.setAttribute('opacity','1'));
-        el.addEventListener('mouseleave', () => el.setAttribute('opacity','0.9'));
-        el.addEventListener('click', () => showDayPopup(ds, rec));
-        svg.appendChild(el);
+      recCount++;
+      // 범례 수집 — id 없어도 label로 키 (서버 sync 데이터도 안전)
+      if (rec.emotion?.label) {
+        const key = rec.emotion.label;
+        if (!usedEmotions.has(key)) usedEmotions.set(key, rec.emotion);
+      }
+
+      // 꽃잎 단일 색 (③ 개선) — 학생이 만든 혼합색 하나만 사용
+      const petalColor = rec.mixColor || rec.colors?.[0] || '#cccccc';
+      const isVeryLight = isLightColor(petalColor);
+
+      const el = document.createElementNS('http://www.w3.org/2000/svg','path');
+      el.setAttribute('d', petalPath(cx,cy,IR+4,OR-2,sa+gap,ea-gap));
+      el.setAttribute('fill', petalColor);
+      el.setAttribute('opacity','0.92');
+      el.setAttribute('filter','url(#petal-shadow)');
+      // 흰색·매우 밝은 색이면 외곽선 추가 (⑧ 흰색 가시성)
+      if (isVeryLight) {
+        el.setAttribute('stroke','rgba(120,160,180,0.45)');
+        el.setAttribute('stroke-width','1');
+      }
+      el.style.cursor = 'pointer';
+      el.style.transition = 'opacity 0.2s, transform 0.2s';
+      el.style.transformOrigin = `${cx}px ${cy}px`;
+      // hover 효과 강화 (⑨)
+      el.addEventListener('mouseenter', () => {
+        el.setAttribute('opacity','1');
+        el.style.transform = 'scale(1.03)';
       });
+      el.addEventListener('mouseleave', () => {
+        el.setAttribute('opacity','0.92');
+        el.style.transform = 'scale(1)';
+      });
+      el.addEventListener('click', () => showDayPopup(ds, rec));
+      svg.appendChild(el);
     } else {
       const el = document.createElementNS('http://www.w3.org/2000/svg','path');
       el.setAttribute('d', petalPath(cx,cy,IR+4,OR-2,sa+gap,ea-gap));
       el.setAttribute('fill','rgba(210,240,238,0.25)');
-      el.setAttribute('stroke','rgba(61,214,181,0.2)');
-      el.setAttribute('stroke-width','0.6');
+      el.setAttribute('stroke','rgba(61,214,181,0.25)');
+      el.setAttribute('stroke-width','0.8');
+      el.setAttribute('stroke-dasharray','3,2');  // 빈 꽃잎임을 점선으로 표시 (⑪)
       el.style.cursor = 'pointer';
       el.addEventListener('click', () => showDayPopup(ds, null));
       svg.appendChild(el);
     }
 
-    // 날짜 숫자 - 꽃잎 바깥쪽에
+    // 날짜 숫자 — 꽃잎 바깥쪽
     const lr = OR + 13;
     const txt = document.createElementNS('http://www.w3.org/2000/svg','text');
     txt.setAttribute('x', cx + Math.cos(midA)*lr);
     txt.setAttribute('y', cy + Math.sin(midA)*lr);
     txt.setAttribute('text-anchor','middle');
     txt.setAttribute('dominant-baseline','middle');
-    txt.setAttribute('font-size', days > 28 ? '9.5' : '11');
-    txt.setAttribute('fill', hasRecord ? '#1a3a6a' : 'rgba(120,160,190,0.5)');
+    // 일수에 따라 폰트 크기 더 정교하게 (⑥)
+    txt.setAttribute('font-size', days >= 31 ? '9' : days >= 30 ? '9.5' : days >= 29 ? '10' : '11');
+    txt.setAttribute('fill', hasRecord ? 'var(--navy)' : 'rgba(120,160,190,0.5)');  // CSS 변수 사용 (⑬)
     txt.setAttribute('font-family','Do Hyeon,sans-serif');
     txt.setAttribute('font-weight', hasRecord ? 'bold' : 'normal');
+    txt.style.pointerEvents = 'none';  // 텍스트가 클릭 막지 않게
     txt.textContent = day;
     svg.appendChild(txt);
   }
@@ -2333,6 +2519,7 @@ function renderMandala() {
   ic.setAttribute('cx',cx); ic.setAttribute('cy',cy); ic.setAttribute('r',IR);
   ic.setAttribute('fill','rgba(255,255,255,0.92)');
   ic.setAttribute('filter','url(#center-glow)');
+  ic.style.pointerEvents = 'none';
   svg.appendChild(ic);
 
   // 내부 장식 원
@@ -2342,6 +2529,7 @@ function renderMandala() {
   ic2.setAttribute('stroke','rgba(61,214,181,0.2)');
   ic2.setAttribute('stroke-width','1.5');
   ic2.setAttribute('stroke-dasharray','4,4');
+  ic2.style.pointerEvents = 'none';
   svg.appendChild(ic2);
 
   // 가운데 쿠쿠 이미지
@@ -2353,61 +2541,59 @@ function renderMandala() {
   kukuImg.setAttribute('width', imgSize);
   kukuImg.setAttribute('height', imgSize);
   kukuImg.setAttribute('preserveAspectRatio','xMidYMid meet');
+  kukuImg.style.pointerEvents = 'none';
   svg.appendChild(kukuImg);
 
-  // legend
+  // 범례 (EMOTIONS 정의 순서로 정렬 ⑫)
   const legend = document.getElementById('mandalaLegend');
   legend.innerHTML = '';
-  const usedColors = {};
-  for (let d = 1; d <= days; d++) {
-    const ds = `${viewYear}-${String(viewMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-    const rec = diary[ds];
-    if (rec?.emotion) {
-      const eid = rec.emotion.id;
-      if (!usedColors[eid]) {
-        usedColors[eid] = rec.emotion;
-      }
-    }
-  }
-  Object.values(usedColors).forEach(emo => {
+  const sortedEmotions = EMOTIONS
+    .filter(e => usedEmotions.has(e.label))
+    .map(e => usedEmotions.get(e.label));
+  sortedEmotions.forEach(emo => {
     const item = document.createElement('div');
     item.className = 'legend-item';
-    item.innerHTML = `<div class="legend-dot" style="background:${emo.color}"></div><span>${emo.emoji} ${emo.label}</span>`;
+    item.innerHTML = `<div class="legend-dot" style="background:${emo.color || '#cccccc'}"></div><span>${emo.emoji || ''} ${emo.label}</span>`;
     legend.appendChild(item);
   });
-  if (!Object.keys(usedColors).length) {
+  if (sortedEmotions.length === 0) {
     legend.innerHTML = '<div style="font-size:0.8rem;color:#8ab0b8;">기록하면 범례가 표시돼요</div>';
   }
-  // 기록 수 표시
-  let recCount = 0;
-  for (let d = 1; d <= days; d++) {
-    const ds2 = `${viewYear}-${String(viewMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-    if (diary[ds2]) recCount++;
-  }
+
+  // 기록 수 표시 (위 순회에서 이미 계산됨)
   const countEl = document.getElementById('mandalaRecordCount');
   if (countEl) countEl.textContent = `📝 ${recCount}일 기록 / ${days}일`;
 }
 
-function petalPath(cx,cy,r1,r2,sa,ea) {
-  // 안쪽/바깥쪽 모두 곡선 처리한 꽃잎 모양
-  const x1=cx+Math.cos(sa)*r2, y1=cy+Math.sin(sa)*r2;
-  const x2=cx+Math.cos(ea)*r2, y2=cy+Math.sin(ea)*r2;
-  const x3=cx+Math.cos(ea)*r1, y3=cy+Math.sin(ea)*r1;
-  const x4=cx+Math.cos(sa)*r1, y4=cy+Math.sin(sa)*r1;
-  const lg = (ea-sa) > Math.PI ? 1 : 0;
-  // 바깥 호는 약간 볼록하게 (r2*1.04)
-  const ro = r2 * 1.03;
-  const xm=cx+Math.cos((sa+ea)/2)*ro, ym=cy+Math.sin((sa+ea)/2)*ro;
-  return `M${x4},${y4} A${r1},${r1} 0 ${lg},1 ${x3},${y3} L${x2},${y2} A${r2},${r2} 0 ${lg},0 ${x1},${y1} Z`;
+// 매우 밝은 색인지 판별 (흰색·연한 파스텔 가시성용)
+function isLightColor(c) {
+  if (!c) return false;
+  let r, g, b;
+  if (typeof c === 'string' && c.startsWith('rgb')) {
+    const m = c.match(/\d+/g);
+    if (!m) return false;
+    [r, g, b] = m.map(Number);
+  } else if (typeof c === 'string' && c.startsWith('#')) {
+    const h = c.replace('#','');
+    if (h.length < 6) return false;
+    r = parseInt(h.slice(0,2),16);
+    g = parseInt(h.slice(2,4),16);
+    b = parseInt(h.slice(4,6),16);
+  } else { return false; }
+  // 명도 기준 (0~255) — 평균 230 이상이면 매우 밝음
+  return (r + g + b) / 3 > 230;
 }
 
-function arcPath(cx,cy,r1,r2,sa,ea) {
-  const x1=cx+Math.cos(sa)*r2, y1=cy+Math.sin(sa)*r2;
-  const x2=cx+Math.cos(ea)*r2, y2=cy+Math.sin(ea)*r2;
-  const x3=cx+Math.cos(ea)*r1, y3=cy+Math.sin(ea)*r1;
-  const x4=cx+Math.cos(sa)*r1, y4=cy+Math.sin(sa)*r1;
-  const lg = (ea-sa) > Math.PI ? 1 : 0;
-  return `M${x1},${y1} A${r2},${r2} 0 ${lg},1 ${x2},${y2} L${x3},${y3} A${r1},${r1} 0 ${lg},0 ${x4},${y4} Z`;
+function petalPath(cx,cy,r1,r2,sa,ea) {
+  // 꽃잎: 안쪽에서 시작 → 바깥으로 → 호로 그려서 닫힘
+  // 한 꽃잎 각도는 항상 작아서 large-arc-flag는 항상 0
+  const x1=cx+Math.cos(sa)*r1, y1=cy+Math.sin(sa)*r1;  // 시작 (안쪽)
+  const x2=cx+Math.cos(sa)*r2, y2=cy+Math.sin(sa)*r2;  // 바깥 시작
+  const x3=cx+Math.cos(ea)*r2, y3=cy+Math.sin(ea)*r2;  // 바깥 끝
+  const x4=cx+Math.cos(ea)*r1, y4=cy+Math.sin(ea)*r1;  // 안쪽 끝
+  // 안쪽 r1: 시작→끝 (sweep 1, 시계방향)
+  // 바깥 r2: 끝→시작과 반대방향이므로 sweep 0
+  return `M${x1},${y1} L${x2},${y2} A${r2},${r2} 0 0,1 ${x3},${y3} L${x4},${y4} A${r1},${r1} 0 0,0 ${x1},${y1} Z`;
 }
 
 // ============================================================
@@ -2519,14 +2705,14 @@ function renderShapeLegend() {
   const legend = document.getElementById('shapeLegend');
   if (!legend) return;
   const shapes = [
-    { shape:'rect',   label:'빨간 계열', color:'#FF6B6B' },
-    { shape:'circle', label:'파란 계열', color:'#7EC8E3' },
-    { shape:'clover', label:'초록 계열', color:'#96CEB4' },
+    { shape:'rect',   label:'빨간 계열', color:'#FF3B3B' },
+    { shape:'circle', label:'파란 계열', color:'#1FA8D8' },
+    { shape:'clover', label:'초록 계열', color:'#5DB85A' },
     { shape:'tri',    label:'노란 계열', color:'#FFD700' },
-    { shape:'star',   label:'보라/핑크', color:'#9C88FF' },
-    { shape:'diamond',label:'주황 계열', color:'#FF9A5C' },
-    { shape:'moon',   label:'어두운 계열', color:'#445566' },
-    { shape:'flower', label:'혼합색',   color:'#B39DDB' },
+    { shape:'star',   label:'보라/핑크', color:'#7C4DFF' },
+    { shape:'diamond',label:'주황 계열', color:'#FFA500' },
+    { shape:'moon',   label:'어두운 계열', color:'#3A4A6A' },
+    { shape:'flower', label:'혼합색',   color:'#FF6B9D' },
   ];
   legend.innerHTML = '';
   shapes.forEach(s => {
@@ -3094,16 +3280,17 @@ function renderShop() {
       ? `<img src="${KUKU_IMG_SRC}" style="width:48px;height:48px;object-fit:contain;" alt="쿠쿠">`
       : item.emoji;
 
+    // ② 가격은 항상 표시. 보유 시 우측 상단에 작은 ✅ 배지로 보유 표시
     let bottomHtml = '';
     if (locked) {
       bottomHtml = `<div class="shop-locked-badge">🔒 ${streak}/30일</div>`;
-    } else if (owned) {
-      bottomHtml = '<div class="shop-owned-badge">✅ 보유 중 (탭하면 바다로!)</div>';
     } else {
       bottomHtml = `<div class="shop-price">🐚 ${item.price}개</div>`;
     }
+    const ownedBadge = owned ? '<div class="shop-owned-mini">✅</div>' : '';
 
     div.innerHTML = `
+      ${ownedBadge}
       <div class="shop-emoji">${emojiHtml}</div>
       <div class="shop-name">${item.name}</div>
       ${item.special ? '<div style="font-size:0.72rem;color:#8a60d0;margin-bottom:6px;">✨ 특수 스티커</div>' : ''}
@@ -3113,7 +3300,7 @@ function renderShop() {
     if (locked) {
       div.onclick = () => showToast(`🔒 30일 연속 기록을 달성하면 해금돼! (현재 ${streak}일)`);
     } else if (owned) {
-      // #7, #8: 보유한 스티커는 다시 바다에 꺼낼 수 있게
+      // 보유한 스티커는 다시 바다에 꺼낼 수 있게 (스탬프 차감 없음)
       div.onclick = () => {
         addStickerToOcean(item, null, true);
         showToast(`${item.emoji === 'KUKU_IMG' ? '🐟' : item.emoji} ${item.name}이(가) 바다에 등장했어!`);
