@@ -1274,7 +1274,12 @@ function logoutUser() {
           <div class="shell-category-badge" id="questionCategory">카테고리 A</div>
           <div class="shell-question" id="shellQuestion">오늘 급식 메뉴 중 내 기분을 가장 좋게 만든 건 뭐였어?</div>
           <textarea class="answer-box" id="answerBox" placeholder="여기에 자유롭게 적어봐... 🌊"></textarea>
-          <button class="new-question-btn" onclick="nextQuestion()">🔀 다른 질문 받기</button>
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-top:6px;">
+            <button class="new-question-btn" onclick="nextQuestion()">🔀 다른 질문 받기</button>
+            <div style="font-size:0.74rem;color:#7a9aa4;line-height:1.5;">
+              💡 마음에 드는 질문 <strong>하나</strong>만 골라서 답해봐 · 기록은 <strong>하루 한 번</strong>이야 🐚
+            </div>
+          </div>
         </div>
         <div class="step-nav">
           <button class="btn-prev" onclick="goStep(3)">← 뒤로</button>
@@ -1658,21 +1663,41 @@ function findColorName(c) {
 }
 
 const QUESTIONS = [
+  // ========== 🏫 현실 밀착형 (10개) ==========
   { q:'오늘 급식 메뉴 중 내 기분을 가장 좋게 만든 건 뭐였어?', cat:'🏫 현실 밀착형' },
   { q:'오늘 학교에서 들었던 말 중 가장 마음속에 남는 단어 하나만 알려줘.', cat:'🏫 현실 밀착형' },
   { q:'만약 오늘 하루를 숏폼 영상으로 만든다면, 제목은 뭐라고 지을까?', cat:'🏫 현실 밀착형' },
   { q:'오늘 나만 아는 나의 "대견한 모먼트"가 있었다면? (작은 일이라도 좋아!)', cat:'🏫 현실 밀착형' },
   { q:'오늘 공부나 학원 스케줄 중 가장 탈출하고 싶었던 순간은?', cat:'🏫 현실 밀착형' },
+  { q:'오늘 내 휴대폰 배터리처럼, 지금 내 체력과 기분은 몇 퍼센트(%) 정도 남아있어?', cat:'🏫 현실 밀착형' },
+  { q:'오늘 쉬는 시간에 창밖을 보거나 멍때리며 잠깐 했던 생각은 뭐야?', cat:'🏫 현실 밀착형' },
+  { q:'하루 중 지우개로 싹싹 지워버리고 싶은 아쉬운 순간이 있었다면 언제야?', cat:'🏫 현실 밀착형' },
+  { q:'오늘 만난 사람 중 나를 아주 잠깐이라도 웃게 한 사람이 있어?', cat:'🏫 현실 밀착형' },
+  { q:'오늘 하루를 날씨 예보로 알려준다면, 내일 나의 날씨는 어떨까?', cat:'🏫 현실 밀착형' },
+
+  // ========== 🎨 비유·상징형 (10개) ==========
   { q:'오늘의 내 기분을 소리로 표현한다면? (예: 콰쾅, 보글보글, 살랑살랑)', cat:'🎨 비유·상징형' },
   { q:'지금 내 마음의 온도는 차가운 얼음물일까, 따뜻한 코코아일까?', cat:'🎨 비유·상징형' },
   { q:'오늘의 나를 바다 생물에 비유한다면 어떤 친구와 닮았어?', cat:'🎨 비유·상징형' },
   { q:'지금 내 마음 바다의 수심은 얼마나 깊은 것 같아? (얕은 해변 혹은 깊은 심해)', cat:'🎨 비유·상징형' },
   { q:'오늘 내가 만든 이 색깔이 내일 아침 바다 위에 어떤 윤슬로 비치길 바라니?', cat:'🎨 비유·상징형' },
+  { q:'지금 내 마음속에 방이 있다면, 그 방은 얼마나 어질러져 있거나 깔끔하게 정리되어 있어?', cat:'🎨 비유·상징형' },
+  { q:'지금 내 감정을 선으로 그린다면, 뾰족뾰족한 지그재그일까, 아니면 부드러운 물결일까?', cat:'🎨 비유·상징형' },
+  { q:'오늘 내 마음에 사진 필터를 씌운다면, 흑백 필터일까, 아니면 쨍하고 화려한 네온 필터일까?', cat:'🎨 비유·상징형' },
+  { q:'방금 네가 칠한 쿠쿠의 색깔에서 어떤 냄새가 날 것 같아? (예: 비 온 뒤 흙냄새, 달콤한 솜사탕 냄새)', cat:'🎨 비유·상징형' },
+  { q:'쿠쿠의 등에 작은 보따리가 있다면, 오늘 그 안에는 어떤 무거운 (혹은 가벼운) 감정이 들어있을까?', cat:'🎨 비유·상징형' },
+
+  // ========== 💙 관계·위로형 (10개) ==========
   { q:'단짝 루루가 오늘 고생했다며 선물을 준대. 어떤 선물을 받고 싶어?', cat:'💙 관계·위로형' },
   { q:'지금 당장 루루와 함께 헤엄쳐 가고 싶은 너만의 비밀 장소가 있어?', cat:'💙 관계·위로형' },
   { q:'오늘의 나에게 루루가 해줬으면 하는 따뜻한 칭찬 한마디는 뭐야?', cat:'💙 관계·위로형' },
   { q:'내일 아침 눈을 떴을 때, 어떤 기분으로 하루를 시작하고 싶어?', cat:'💙 관계·위로형' },
-  { q:'오늘 나를 힘들게 한 스트레스를 쿠쿠의 방어막으로 가둬버린다면?', cat:'💙 관계·위로형' }
+  { q:'오늘 나를 힘들게 한 스트레스를 쿠쿠의 방어막으로 가둬버린다면?', cat:'💙 관계·위로형' },
+  { q:'루루가 오늘 밤 네 꿈속으로 놀러 간다면, 바닷속에서 같이 어떤 놀이를 하고 싶어?', cat:'💙 관계·위로형' },
+  { q:'나도 모르게 꾹 참았던 눈물이나 한숨이 있다면, 루루의 커다란 조개껍데기 안에 몰래 털어놓을래?', cat:'💙 관계·위로형' },
+  { q:'루루가 너만을 위한 응원가를 불러준다면, 어떤 장르의 노래면 좋겠어? (예: 신나는 힙합, 잔잔한 아이돌 노래)', cat:'💙 관계·위로형' },
+  { q:'오늘 하루 정말 열심히 버텨낸 너의 어깨를 루루가 토닥이며 딱 한마디를 해준다면, 어떤 말을 듣고 싶어?', cat:'💙 관계·위로형' },
+  { q:'쿠쿠와 루루가 내일 너의 등굣길을 몰래 따라간다면, 너를 위해 어떤 마법을 걸어주길 바라?', cat:'💙 관계·위로형' }
 ];
 
 const SHOP_ITEMS = [
@@ -2436,16 +2461,57 @@ function toggleTempInfo(e) {
 // ============================================================
 // STEP 4 - QUESTION
 // ============================================================
-let questionIdx = Math.floor(Math.random() * QUESTIONS.length);
+// 최근 본 질문 기록 (중복 방지) — localStorage에 저장
+let recentQuestions = JSON.parse(localStorage.getItem('kukku_recent_questions') || '[]');
+const RECENT_LIMIT = 7; // 최근 7개는 다시 뽑지 않음
+
+function pickQuestion(excludeIdx) {
+  // 1차: 최근에 본 질문 + excludeIdx 제외하고 후보 만들기
+  const exclude = new Set(recentQuestions);
+  if (typeof excludeIdx === 'number') exclude.add(excludeIdx);
+
+  let candidates = [];
+  for (let i = 0; i < QUESTIONS.length; i++) {
+    if (!exclude.has(i)) candidates.push(i);
+  }
+
+  // 후보가 없을 정도로 다 봤으면 → 가장 오래 전 본 질문은 다시 풀어줌
+  if (candidates.length === 0) {
+    recentQuestions = recentQuestions.slice(-Math.floor(QUESTIONS.length / 2));
+    candidates = [];
+    for (let i = 0; i < QUESTIONS.length; i++) {
+      if (!recentQuestions.includes(i) && i !== excludeIdx) candidates.push(i);
+    }
+    if (candidates.length === 0) {
+      // 그래도 후보 0이면 그냥 아무거나
+      candidates = QUESTIONS.map((_, i) => i);
+    }
+  }
+
+  return candidates[Math.floor(Math.random() * candidates.length)];
+}
+
+function rememberQuestion(idx) {
+  recentQuestions.push(idx);
+  // 최대 RECENT_LIMIT 개수만 유지
+  if (recentQuestions.length > RECENT_LIMIT) {
+    recentQuestions = recentQuestions.slice(-RECENT_LIMIT);
+  }
+  localStorage.setItem('kukku_recent_questions', JSON.stringify(recentQuestions));
+}
+
+let questionIdx = pickQuestion();
 
 function showQuestion() {
   currentQuestion = QUESTIONS[questionIdx];
   document.getElementById('shellQuestion').textContent = currentQuestion.q;
   document.getElementById('questionCategory').textContent = currentQuestion.cat;
+  rememberQuestion(questionIdx);
 }
 
 function nextQuestion() {
-  questionIdx = (questionIdx + 1) % QUESTIONS.length;
+  // 방금 본 질문은 제외하고 새로 뽑기 (진짜 랜덤)
+  questionIdx = pickQuestion(questionIdx);
   showQuestion();
   document.getElementById('answerBox').value = '';
 }
@@ -2479,6 +2545,24 @@ function saveRecord() {
   const colorName = document.getElementById('colorNameInput').value || '이름 없는 색';
   const answer = document.getElementById('answerBox').value;
 
+  // ★ 하루 1회 정책: 오늘 이미 기록이 있는지 체크
+  // 기존 기록은 emotion이 있는 정상 기록만 카운트 (그림만 첨부된 케이스 제외)
+  const isUpdate = !!(diary[ds] && diary[ds].emotion);
+
+  if (isUpdate) {
+    // 수정 확인: 학생이 의도하지 않은 덮어쓰기 방지
+    const ok = confirm(
+      '오늘은 이미 마음 기록을 했어 🐚\n\n'
+      + '다시 저장하면 오늘 기록이 새로 쓴 내용으로 바뀌어.\n'
+      + '대신 스탬프는 하루에 1개만 받을 수 있어!\n\n'
+      + '정말 오늘 기록을 고쳐서 저장할까?'
+    );
+    if (!ok) return;
+  }
+
+  // 그림은 보존 (기존에 첨부된 그림이 있으면 유지)
+  const existingDrawing = (diary[ds] && diary[ds].drawing) ? diary[ds].drawing : undefined;
+
   diary[ds] = {
     emotion: selectedEmotion,
     colors: selectedColors,
@@ -2489,8 +2573,12 @@ function saveRecord() {
     answer,
     timestamp: Date.now()
   };
+  if (existingDrawing) diary[ds].drawing = existingDrawing;
 
-  stamps += 1;
+  // ★ 스탬프는 신규 기록일 때만 +1 (수정은 스탬프 없음)
+  if (!isUpdate) {
+    stamps += 1;
+  }
   saveDiary();
 
   // ── GAS 서버에 저장 ──
@@ -2505,7 +2593,9 @@ function saveRecord() {
       temperature: parseInt(temp),
       diaryText: answer,
       question: currentQuestion?.q || '',
-      drawingUrl: ''
+      drawingUrl: '',
+      isUpdate: isUpdate,    // ★ 서버에 수정 여부 알림 (스탬프 중복 방지용)
+      recordDate: ds         // ★ 어떤 날짜의 기록인지
     }).then(r => {
       if (r.success) {
         console.log('☁️ 서버 저장 완료!');
@@ -2535,7 +2625,19 @@ function saveRecord() {
   updateStats();
   renderMandala();
   renderCalendar();
-  showToast('🐚 스탬프 +1개! 잘했어~');
+
+  // 완료 화면 메시지를 수정/신규에 맞게
+  const completeMsg = document.querySelector('.complete-msg');
+  const completeSub = document.querySelector('.complete-sub');
+  if (isUpdate) {
+    if (completeMsg) completeMsg.textContent = '오늘 기록을 다시 다듬었어 ✏️';
+    if (completeSub) completeSub.textContent = '오늘 마음을 한 번 더 들여다봤구나! (스탬프는 하루 1개 ❤️)';
+    showToast('✏️ 오늘 기록을 수정했어!');
+  } else {
+    if (completeMsg) completeMsg.textContent = '오늘도 수고했어!';
+    if (completeSub) completeSub.textContent = '기록 완료! 조개껍데기 스탬프 +1개 획득 🎉';
+    showToast('🐚 스탬프 +1개! 잘했어~');
+  }
 
   // 처방전 자동 표시
   if (selectedEmotion) {
