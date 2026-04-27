@@ -421,6 +421,23 @@ body {
 .kuku-color-controls {
   width: 100%; max-width: 420px;
 }
+.info-btn {
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(106, 138, 148, 0.5);
+  background: rgba(255, 255, 255, 0.6);
+  color: #6a8a94;
+  cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 0;
+  transition: all 0.15s;
+}
+.info-btn:hover {
+  background: rgba(61, 214, 181, 0.15);
+  border-color: rgba(61, 214, 181, 0.6);
+  color: var(--emerald-deep, #2a9080);
+  transform: scale(1.1);
+}
 .temp-slider-wrap {
   background: linear-gradient(to right, #7ec8e3, #ffb347);
   border-radius: 12px; padding: 3px;
@@ -1207,7 +1224,27 @@ function logoutUser() {
             </div>
 
             <div style="margin-bottom:16px;">
-              <div style="font-size:0.82rem;color:#6a8a94;margin-bottom:8px;">🌡️ 마음 온도</div>
+              <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
+                <div style="font-size:0.82rem;color:#6a8a94;">🌡️ 마음 온도</div>
+                <button type="button" class="info-btn" onclick="toggleTempInfo(event)" aria-label="마음 온도 설명 보기" title="자세히 보기">
+                  <span style="font-weight:600;font-size:0.78rem;">?</span>
+                </button>
+              </div>
+              <div style="font-size:0.72rem;color:#8a9aa4;margin-bottom:8px;line-height:1.5;">
+                숨겨진 감정의 강도예요. 높을수록 감정이 강렬해!
+              </div>
+
+              <!-- 자세한 설명 팝업 -->
+              <div id="tempInfoBox" style="display:none;background:linear-gradient(135deg,rgba(201,214,255,0.25),rgba(255,220,235,0.2));border:1px solid rgba(201,214,255,0.5);border-radius:12px;padding:12px 14px;margin-bottom:10px;font-size:0.78rem;color:#4a5a7a;line-height:1.7;position:relative;">
+                <button type="button" onclick="toggleTempInfo(event)" aria-label="닫기" style="position:absolute;top:6px;right:8px;background:transparent;border:none;cursor:pointer;font-size:0.95rem;color:#7a8aaa;padding:2px 6px;">✕</button>
+                <div style="font-family:var(--font-title);color:#3a4a8a;margin-bottom:6px;">🌡️ 마음 온도란?</div>
+                <div style="margin-bottom:6px;">감정의 <strong>강도</strong>를 숫자로 표현하는 거야. 같은 감정이라도 약하게 느낄 때와 아주 강하게 느낄 때가 있잖아.</div>
+                <div style="margin-bottom:4px;">❄️ <strong>0~10°C</strong> — 차분하고 잔잔한 마음</div>
+                <div style="margin-bottom:4px;">🌤️ <strong>11~25°C</strong> — 평온하고 편안한 마음</div>
+                <div style="margin-bottom:4px;">🔥 <strong>26~40°C</strong> — 강렬하고 뜨거운 마음</div>
+                <div style="margin-top:6px;font-size:0.74rem;color:#6a7a9a;">정답은 없어. 지금 내 마음에 솔직하게 맞춰봐 💙</div>
+              </div>
+
               <div class="temp-display" id="tempDisplay">20°C</div>
               <div class="temp-slider-wrap">
                 <input type="range" class="temp-slider" id="tempSlider" min="0" max="40" value="20" oninput="updateTemp(this.value)">
@@ -2387,6 +2424,13 @@ function applyColorToKuku() {
 
 function updateTemp(val) {
   document.getElementById('tempDisplay').textContent = val + '°C';
+}
+
+function toggleTempInfo(e) {
+  if (e) e.stopPropagation();
+  const box = document.getElementById('tempInfoBox');
+  if (!box) return;
+  box.style.display = (box.style.display === 'none' || !box.style.display) ? 'block' : 'none';
 }
 
 // ============================================================
