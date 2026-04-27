@@ -335,8 +335,20 @@ body {
   color: #6a4030; margin-bottom: 16px;
 }
 .color-wells {
-  display: flex; flex-wrap: wrap; gap: 10px; justify-content: center;
-  margin-bottom: 20px;
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 12px 14px;
+  justify-items: center;
+  max-width: 420px;
+  margin: 0 auto 20px;
+}
+@media (max-width: 460px) {
+  .color-wells {
+    grid-template-columns: repeat(6, 1fr);
+    gap: 8px;
+    max-width: 100%;
+  }
+  .color-well { width: 42px; height: 42px; }
 }
 .color-well {
   width: 52px; height: 52px; border-radius: 50%;
@@ -1352,8 +1364,8 @@ function logoutUser() {
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:8px;">
           <div class="card-title" style="margin-bottom:0;">🖌️ 수채화 그림판</div>
           <div style="display:flex;gap:8px;">
-            <button class="tool-btn" onclick="saveCanvasImg()" title="내 컴퓨터에 PNG 파일로 저장">💾 PC에 저장</button>
-            <button class="tool-btn" onclick="savePaintToRecord()" title="그림책에 들어갈 오늘의 그림으로 첨부" style="background:rgba(61,214,181,0.15);border-color:rgba(61,214,181,0.4);color:var(--emerald-deep);">📖 그림책에 첨부</button>
+            <button class="tool-btn" onclick="saveCanvasImg()" title="내 컴퓨터에 PNG 이미지 파일로 다운로드해요">⬇️ 내 컴퓨터로 다운로드</button>
+            <button class="tool-btn" onclick="savePaintToRecord()" title="오늘의 감정 기록에 그림을 첨부해요. 마음 그림책에 자동으로 들어가요" style="background:rgba(61,214,181,0.15);border-color:rgba(61,214,181,0.4);color:var(--emerald-deep);">✨ 그림책에 담기</button>
           </div>
         </div>
 
@@ -1366,9 +1378,13 @@ function logoutUser() {
         <!-- 툴바 -->
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px;padding:12px 14px;background:rgba(255,255,255,0.6);border-radius:16px;border:1.5px solid rgba(61,214,181,0.15);">
           <!-- 도구 -->
-          <div style="display:flex;gap:6px;">
-            <button class="tool-btn active" id="btnPen" onclick="setPaintTool('pen')" title="펜">✏️</button>
-            <button class="tool-btn" id="btnBlur" onclick="setPaintTool('blur')" title="번짐">🌫️</button>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;">
+            <button class="tool-btn active" id="btnPen" onclick="setPaintTool('pen')" title="펜 — 또렷한 선">✏️</button>
+            <button class="tool-btn" id="btnBlur" onclick="setPaintTool('blur')" title="번짐 — 흐릿하게">🌫️</button>
+            <button class="tool-btn" id="btnWatercolor" onclick="setPaintTool('watercolor')" title="수채화 — 부드럽게 번지는 농담">🎨</button>
+            <button class="tool-btn" id="btnCrayon" onclick="setPaintTool('crayon')" title="크레용 — 거친 질감">🖍️</button>
+            <button class="tool-btn" id="btnSparkle" onclick="setPaintTool('sparkle')" title="반짝이 — 빛나는 점들">✨</button>
+            <button class="tool-btn" id="btnDrop" onclick="setPaintTool('drop')" title="물감 방울 — 큰 동그라미들">💧</button>
             <button class="tool-btn" id="btnEraser" onclick="setPaintTool('eraser')" title="지우개">🧹</button>
           </div>
           <div style="width:1px;height:28px;background:rgba(61,214,181,0.25);"></div>
@@ -1412,8 +1428,8 @@ function logoutUser() {
         <!-- 하단 안내 -->
         <div style="margin-top:10px;display:flex;gap:16px;font-size:0.75rem;color:#8ab0b8;flex-wrap:wrap;">
           <span>💡 이미지를 불러온 뒤 그 위에 자유롭게 그려봐!</span>
-          <span>💡 번짐 붓으로 수채화 느낌을 낼 수 있어</span>
-          <span>💡 "오늘 기록에 첨부"하면 그림책에도 나와!</span>
+          <span>💡 ✨반짝이·💧방울·🎨수채화·🖍️크레용 — 다양한 붓으로 마음을 표현해봐</span>
+          <span>💡 "✨ 그림책에 담기"를 누르면 오늘의 마음 그림책에 들어가!</span>
         </div>
       </div>
     </div>
@@ -1948,16 +1964,16 @@ let lastX = 0, lastY = 0;
 // ── 서버에서 기록 불러오기 ──
 async function syncFromServer() {
   if (!currentUser) return;
-  const now = new Date();
+
+  // ① 일기 전체 조회 (year/month 생략 = 전체)
+  // 다른 컴퓨터/주말 집 PC에서도 모든 기록을 복원할 수 있도록
   const result = await gasRequest({
     action: 'getRecords',
-    email: currentUser.email,
-    year: now.getFullYear(),
-    month: now.getMonth() + 1
+    email: currentUser.email
   });
-  if (result.success && result.records) {
+  if (result.success && Array.isArray(result.records)) {
+    // 서버 기록을 로컬에 머지 (서버 우선: 같은 날짜는 서버 데이터로 덮어씀)
     result.records.forEach(r => {
-      // 서버는 감정 label만 보내주므로, EMOTIONS 배열에서 전체 정보 찾기
       const fullEmotion = EMOTIONS.find(e => e.label === r.emotion) || { id:'', emoji:'', label: r.emotion, color:'' };
       diary[r.date] = {
         emotion:   { id: fullEmotion.id, emoji: fullEmotion.emoji, label: fullEmotion.label, color: fullEmotion.color },
@@ -1973,25 +1989,58 @@ async function syncFromServer() {
     localStorage.setItem('kukku_diary', JSON.stringify(diary));
   }
 
-  // 스탬프 동기화 (클라이언트 우선)
-  // 서버에는 "총 적립 횟수"가 있지만 클라이언트에는 "구매 차감 후 잔액"이 있음
-  // → 첫 로그인(localStorage 비어있음)일 때만 서버 값을 가져오고, 그 외엔 로컬 값 유지
+  // ② 스탬프 + 보유 스티커 동기화
+  // 새 기기/브라우저에서는 localStorage가 비어있음 → 서버 값으로 복원
+  // 같은 기기 재방문이면 서버 ↔ 로컬을 비교해서 더 최신 상태로 맞춤
   const stampResult = await gasRequest({ action: 'getStamps', email: currentUser.email });
   if (stampResult.success) {
-    const localStamps = parseInt(localStorage.getItem('kukku_stamps') || '0');
-    const localOwned = JSON.parse(localStorage.getItem('kukku_owned') || '[]');
-    const isFirstLogin = (localStamps === 0 && localOwned.length === 0);
-    if (isFirstLogin) {
-      // 첫 로그인이면 서버 값으로 초기화
-      stamps = stampResult.totalStamps || 0;
+    const localStampsRaw = localStorage.getItem('kukku_stamps');
+    const localOwnedRaw  = localStorage.getItem('kukku_owned');
+    const isFreshDevice = (localStampsRaw === null && localOwnedRaw === null);
+
+    if (isFreshDevice) {
+      // 새 기기 - 서버에서 받은 값으로 초기화
+      stamps      = Number(stampResult.totalStamps) || 0;
+      ownedItems  = Array.isArray(stampResult.ownedItems) ? stampResult.ownedItems.slice() : [];
       localStorage.setItem('kukku_stamps', stamps);
+      localStorage.setItem('kukku_owned', JSON.stringify(ownedItems));
+    } else {
+      // 같은 기기 재방문 - 서버에 있지만 로컬에 없는 보유 스티커는 추가 (다른 기기에서 산 것)
+      const serverOwned = Array.isArray(stampResult.ownedItems) ? stampResult.ownedItems : [];
+      let merged = false;
+      serverOwned.forEach(id => {
+        if (!ownedItems.includes(id)) {
+          ownedItems.push(id);
+          merged = true;
+        }
+      });
+      if (merged) localStorage.setItem('kukku_owned', JSON.stringify(ownedItems));
     }
-    // 그 외엔 로컬 값 그대로 유지 (구매 차감 보존)
   }
- updateStats();
+
+  // ③ 바다 꾸미기 배치 동기화
+  // 로컬에 배치 데이터가 없을 때만 서버에서 가져옴 (= 새 기기)
+  // 그 외엔 로컬이 진실 (드래그/이동 결과가 즉시 반영되어야 하므로)
+  const localOceanRaw = localStorage.getItem('kukku_ocean');
+  if (localOceanRaw === null || localOceanRaw === '[]') {
+    const oceanResult = await gasRequest({ action: 'loadOceanLayout', email: currentUser.email });
+    if (oceanResult.success && Array.isArray(oceanResult.layout) && oceanResult.layout.length > 0) {
+      // 서버 형식(stickerId, x, y) → 클라이언트 형식(itemId, leftPct, topPct)
+      oceanLayout = oceanResult.layout.map(l => ({
+        itemId:     l.stickerId,
+        leftPct:    Number(l.x) || 50,
+        topPct:     Number(l.y) || 50,
+        instanceId: 's_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7)
+      }));
+      localStorage.setItem('kukku_ocean', JSON.stringify(oceanLayout));
+    }
+  }
+
+  updateStats();
   renderMandala();
   renderCalendar();
-  renderShop();  // ⑤ sync 후 상점 다시 렌더 (서버에서 받아온 기록 반영)
+  renderShop();
+  restoreOceanLayout(); // 바다 배치 다시 그리기
 }
 window.onload = async () => {
   initBubbles();
@@ -2017,13 +2066,14 @@ window.onload = async () => {
 
 // 디바운스 타이머 (④ 동시성 안전)
 let _saveStampsTimer = null;
+let _saveOceanTimer = null;
 function saveDiary() {
   localStorage.setItem('kukku_diary', JSON.stringify(diary));
   localStorage.setItem('kukku_stamps', stamps);
   localStorage.setItem('kukku_owned', JSON.stringify(ownedItems));
   localStorage.setItem('kukku_ocean', JSON.stringify(oceanLayout));
 
-  // 서버에도 스탬프 저장 (디바운스: 빠른 연속 호출은 마지막만 전송)
+  // 서버에도 스탬프/보유 스티커 저장 (디바운스: 빠른 연속 호출은 마지막만 전송)
   if (currentUser) {
     if (_saveStampsTimer) clearTimeout(_saveStampsTimer);
     _saveStampsTimer = setTimeout(() => {
@@ -2037,6 +2087,29 @@ function saveDiary() {
         if (r && !r.success) console.log('[saveStamps] 서버 저장 실패:', r.message);
       }).catch(e => console.log('[saveStamps] 네트워크 오류:', e));
     }, 400);
+
+    // 바다 꾸미기 배치도 서버 저장 (드래그 중 빈번한 호출 → 디바운스 700ms)
+    if (_saveOceanTimer) clearTimeout(_saveOceanTimer);
+    _saveOceanTimer = setTimeout(() => {
+      // 클라이언트 형식 → 서버 형식 변환
+      const layoutData = oceanLayout.map(l => {
+        const item = SHOP_ITEMS.find(s => s.id === l.itemId);
+        return {
+          stickerId:   l.itemId,
+          stickerName: item ? item.name : '',
+          x:    l.leftPct,
+          y:    l.topPct,
+          size: 1
+        };
+      });
+      gasRequest({
+        action: 'saveOceanLayout',
+        email: currentUser.email,
+        layoutData: layoutData
+      }).then(r => {
+        if (r && !r.success) console.log('[saveOceanLayout] 서버 저장 실패:', r.message);
+      }).catch(e => console.log('[saveOceanLayout] 네트워크 오류:', e));
+    }, 700);
   }
 }
 
@@ -2890,21 +2963,62 @@ function initPaintCanvas() {
     isDrawing = true;
     const p = getPos(e);
     lastX = p.x; lastY = p.y;
-    // 점 하나 찍기 (클릭만 해도 점이 찍히도록)
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, parseInt(document.getElementById('brushSize').value)/2, 0, Math.PI*2);
+    const size = parseInt(document.getElementById('brushSize').value);
     const opacity = parseInt(document.getElementById('brushOpacity').value) / 100;
+
     if (paintTool === 'eraser') {
-      ctx.globalCompositeOperation = 'destination-out';
-      ctx.fillStyle = 'rgba(0,0,0,1)';
-    } else {
-      ctx.globalCompositeOperation = 'source-over';
-      const {r,g,b} = hexToRgb(paintColor);
-      ctx.fillStyle = `rgba(${r},${g},${b},${opacity})`;
-      ctx.filter = paintTool === 'blur' ? 'blur(6px)' : 'none';
+      // 지우개는 점 미리보기 X (클릭만으로 의도치 않은 지움 방지)
+      return;
     }
-    ctx.fill();
-    ctx.filter = 'none';
+
+    const {r,g,b} = hexToRgb(paintColor);
+    ctx.globalCompositeOperation = 'source-over';
+
+    if (paintTool === 'sparkle') {
+      // 반짝이는 첫 클릭에 작은 별빛 한 송이
+      for (let k = 0; k < 4; k++) {
+        const ox = (Math.random() - 0.5) * size;
+        const oy = (Math.random() - 0.5) * size;
+        const radius = size * (k === 0 ? 0.32 : 0.12 + Math.random() * 0.12);
+        ctx.fillStyle = `rgba(${r},${g},${b},${opacity * (0.6 + Math.random() * 0.3)})`;
+        ctx.beginPath();
+        ctx.arc(p.x + ox, p.y + oy, radius, 0, Math.PI*2);
+        ctx.fill();
+      }
+    } else if (paintTool === 'drop') {
+      // 물감 방울 한 방울
+      ctx.filter = 'blur(3px)';
+      ctx.fillStyle = `rgba(${r},${g},${b},${opacity * 0.35})`;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, size, 0, Math.PI*2);
+      ctx.fill();
+      ctx.filter = 'none';
+      ctx.fillStyle = `rgba(${r},${g},${b},${opacity * 0.85})`;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, size * 0.6, 0, Math.PI*2);
+      ctx.fill();
+    } else if (paintTool === 'crayon') {
+      // 크레용 점 (살짝 거친 질감)
+      for (let k = 0; k < 6; k++) {
+        const ox = (Math.random() - 0.5) * size * 0.6;
+        const oy = (Math.random() - 0.5) * size * 0.6;
+        const radius = size * (0.2 + Math.random() * 0.2);
+        ctx.fillStyle = `rgba(${r},${g},${b},${opacity * (0.4 + Math.random() * 0.4)})`;
+        ctx.beginPath();
+        ctx.arc(p.x + ox, p.y + oy, radius, 0, Math.PI*2);
+        ctx.fill();
+      }
+    } else {
+      // 펜·번짐·수채화: 점 하나
+      ctx.fillStyle = `rgba(${r},${g},${b},${opacity})`;
+      ctx.filter = (paintTool === 'blur') ? 'blur(6px)'
+                 : (paintTool === 'watercolor') ? 'blur(2px)'
+                 : 'none';
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, size / 2, 0, Math.PI*2);
+      ctx.fill();
+      ctx.filter = 'none';
+    }
   }
 
   function draw(e) {
@@ -2924,21 +3038,122 @@ function initPaintCanvas() {
       ctx.strokeStyle = 'rgba(0,0,0,1)';
       ctx.lineWidth = size * 1.5;
       ctx.filter = 'none';
+      ctx.beginPath();
+      ctx.moveTo(lastX, lastY);
+      ctx.lineTo(pos.x, pos.y);
+      ctx.stroke();
     } else if (paintTool === 'blur') {
       ctx.globalCompositeOperation = 'source-over';
       ctx.strokeStyle = `rgba(${r},${g},${b},${opacity * 0.4})`;
       ctx.lineWidth = size * 3.5;
       ctx.filter = 'blur(8px)';
+      ctx.beginPath();
+      ctx.moveTo(lastX, lastY);
+      ctx.lineTo(pos.x, pos.y);
+      ctx.stroke();
+    } else if (paintTool === 'watercolor') {
+      // 수채화: 살짝 번지면서 농담이 자연스럽게 변하는 느낌
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.filter = 'blur(2.5px)';
+      // 메인 스트로크 (얇게, 진하게)
+      ctx.strokeStyle = `rgba(${r},${g},${b},${opacity * 0.5})`;
+      ctx.lineWidth = size;
+      ctx.beginPath();
+      ctx.moveTo(lastX, lastY);
+      ctx.lineTo(pos.x, pos.y);
+      ctx.stroke();
+      // 외곽 번짐 (두껍게, 옅게)
+      ctx.strokeStyle = `rgba(${r},${g},${b},${opacity * 0.18})`;
+      ctx.lineWidth = size * 2.2;
+      ctx.beginPath();
+      ctx.moveTo(lastX, lastY);
+      ctx.lineTo(pos.x, pos.y);
+      ctx.stroke();
+    } else if (paintTool === 'crayon') {
+      // 크레용: 경로를 따라 작은 점들을 랜덤하게 흩뿌려 거친 질감 표현
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.filter = 'none';
+      const dx = pos.x - lastX, dy = pos.y - lastY;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+      const steps = Math.max(2, Math.floor(dist / 2));
+      for (let i = 0; i < steps; i++) {
+        const t = i / steps;
+        const cx = lastX + dx * t;
+        const cy = lastY + dy * t;
+        // 메인 점들 (밀도 높게)
+        for (let k = 0; k < 4; k++) {
+          const jitter = size * 0.55;
+          const ox = (Math.random() - 0.5) * jitter;
+          const oy = (Math.random() - 0.5) * jitter;
+          const radius = size * (0.18 + Math.random() * 0.22);
+          const alpha = opacity * (0.35 + Math.random() * 0.45);
+          ctx.fillStyle = `rgba(${r},${g},${b},${alpha})`;
+          ctx.beginPath();
+          ctx.arc(cx + ox, cy + oy, radius, 0, Math.PI*2);
+          ctx.fill();
+        }
+      }
+    } else if (paintTool === 'sparkle') {
+      // 반짝이: 경로 주변에 작은 별빛 같은 점들
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.filter = 'none';
+      const dx = pos.x - lastX, dy = pos.y - lastY;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+      const steps = Math.max(1, Math.floor(dist / 6));
+      for (let i = 0; i < steps; i++) {
+        const t = i / steps;
+        const cx = lastX + dx * t;
+        const cy = lastY + dy * t;
+        // 큰 반짝이 1개 + 작은 반짝이 2~3개
+        const spread = size * 1.2;
+        for (let k = 0; k < 3; k++) {
+          const ox = (Math.random() - 0.5) * spread;
+          const oy = (Math.random() - 0.5) * spread;
+          const radius = size * (k === 0 ? 0.32 : 0.12 + Math.random() * 0.12);
+          const alpha = opacity * (0.55 + Math.random() * 0.4);
+          ctx.fillStyle = `rgba(${r},${g},${b},${alpha})`;
+          ctx.beginPath();
+          ctx.arc(cx + ox, cy + oy, radius, 0, Math.PI*2);
+          ctx.fill();
+        }
+      }
+    } else if (paintTool === 'drop') {
+      // 물감 방울: 경로 따라 큰 동그라미가 살짝 번진 형태로 떨어짐
+      ctx.globalCompositeOperation = 'source-over';
+      const dx = pos.x - lastX, dy = pos.y - lastY;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+      // 일정 간격마다 한 방울씩 (너무 빽빽하지 않게)
+      const stepSize = Math.max(size * 0.7, 8);
+      const steps = Math.max(1, Math.floor(dist / stepSize));
+      for (let i = 0; i < steps; i++) {
+        const t = i / Math.max(steps, 1);
+        const cx = lastX + dx * t;
+        const cy = lastY + dy * t;
+        const radius = size * (0.7 + Math.random() * 0.5);
+        // 외곽 번짐
+        ctx.filter = 'blur(3px)';
+        ctx.fillStyle = `rgba(${r},${g},${b},${opacity * 0.35})`;
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius * 1.4, 0, Math.PI*2);
+        ctx.fill();
+        // 진한 중심
+        ctx.filter = 'none';
+        ctx.fillStyle = `rgba(${r},${g},${b},${opacity * 0.85})`;
+        ctx.beginPath();
+        ctx.arc(cx, cy, radius * 0.85, 0, Math.PI*2);
+        ctx.fill();
+      }
     } else {
+      // 기본 펜
       ctx.globalCompositeOperation = 'source-over';
       ctx.strokeStyle = `rgba(${r},${g},${b},${opacity})`;
       ctx.filter = 'none';
+      ctx.beginPath();
+      ctx.moveTo(lastX, lastY);
+      ctx.lineTo(pos.x, pos.y);
+      ctx.stroke();
     }
 
-    ctx.beginPath();
-    ctx.moveTo(lastX, lastY);
-    ctx.lineTo(pos.x, pos.y);
-    ctx.stroke();
     ctx.filter = 'none';
     lastX = pos.x; lastY = pos.y;
   }
@@ -3051,12 +3266,12 @@ function savePaintToRecord() {
       return;
     }
   }
-  showToast('📎 오늘 기록에 그림을 첨부했어! 그림책에도 나올 거야 🎨');
+  showToast('✨ 그림책에 담았어! 오늘의 마음 그림책에서 볼 수 있어 🎨');
 }
 
 function setPaintTool(tool) {
   paintTool = tool;
-  ['pen','blur','eraser'].forEach(t => {
+  ['pen','blur','watercolor','crayon','sparkle','drop','eraser'].forEach(t => {
     document.getElementById('btn' + t.charAt(0).toUpperCase() + t.slice(1))?.classList.toggle('active', t===tool);
   });
 }
@@ -3463,13 +3678,8 @@ function renderShop() {
 
     if (locked) {
       div.onclick = () => showToast(`🔒 30일 연속 기록을 달성하면 해금돼! (현재 ${streak}일)`);
-    } else if (owned) {
-      // 보유한 스티커는 다시 바다에 꺼낼 수 있게 (스탬프 차감 없음)
-      div.onclick = () => {
-        addStickerToOcean(item, null, true);
-        showToast(`${item.emoji === 'KUKU_IMG' ? '🐟' : item.emoji} ${item.name}이(가) 바다에 등장했어!`);
-      };
     } else {
+      // 보유 여부와 관계없이 클릭 시마다 스탬프 차감하고 바다에 추가 (재구매 가능)
       div.onclick = () => buyItem(item);
     }
     grid.appendChild(div);
@@ -3481,18 +3691,27 @@ function buyItem(item) {
     showToast(`스탬프가 부족해! (필요: 🐚${item.price}개, 현재 ${stamps}개)`);
     return;
   }
-  // #10: 비싼 아이템(5개 이상)은 구매 확인
-  if (item.price >= 5) {
-    const emojiTxt = item.emoji === 'KUKU_IMG' ? '🐟' : item.emoji;
-    if (!confirm(`${emojiTxt} ${item.name}을(를) 🐚${item.price}개로 데려올까?`)) return;
+  const isRepurchase = ownedItems.includes(item.id);
+  const emojiTxt = item.emoji === 'KUKU_IMG' ? '🐟' : item.emoji;
+
+  // #10: 비싼 아이템(5개 이상)은 구매 확인 + 재구매 시에도 한번 더 확인
+  if (item.price >= 5 || isRepurchase) {
+    const msg = isRepurchase
+      ? `${emojiTxt} ${item.name}을(를) 🐚${item.price}개로 한 마리 더 데려올까?`
+      : `${emojiTxt} ${item.name}을(를) 🐚${item.price}개로 데려올까?`;
+    if (!confirm(msg)) return;
   }
+
   stamps -= item.price;
-  ownedItems.push(item.id);
+  // 처음 구매하는 경우에만 ownedItems에 추가 (중복 방지)
+  if (!isRepurchase) ownedItems.push(item.id);
   saveDiary();
   renderShop();
   // #12: 구매 애니메이션과 함께 바다에 추가
   addStickerToOcean(item, null, true);
-  showToast(`${item.emoji === 'KUKU_IMG' ? '🐟' : item.emoji} ${item.name} 구매 완료! ✨`);
+  showToast(isRepurchase
+    ? `${emojiTxt} ${item.name}이(가) 한 마리 더 등장했어! ✨`
+    : `${emojiTxt} ${item.name} 구매 완료! ✨`);
   document.getElementById('topStampCount').textContent = stamps;
 }
 
