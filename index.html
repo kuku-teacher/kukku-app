@@ -2037,6 +2037,8 @@ async function syncFromServer() {
     // 서버 기록을 로컬에 머지 (서버 우선: 같은 날짜는 서버 데이터로 덮어씀)
     result.records.forEach(r => {
       const fullEmotion = EMOTIONS.find(e => e.label === r.emotion) || { id:'', emoji:'', label: r.emotion, color:'' };
+      // 기존 로컬 그림이 있으면 보존하면서 머지
+      const existing = diary[r.date] || {};
       diary[r.date] = {
         emotion:   { id: fullEmotion.id, emoji: fullEmotion.emoji, label: fullEmotion.label, color: fullEmotion.color },
         colors:    [r.colorHex],
@@ -2047,6 +2049,14 @@ async function syncFromServer() {
         answer:    r.diary,
         timestamp: Date.now()
       };
+      // ★ 그림 처리: 서버에 drawingUrl 있으면 그걸 사용, 없으면 로컬 base64 유지
+      if (r.drawingUrl) {
+        diary[r.date].drawingUrl = r.drawingUrl;
+        diary[r.date].drawing = r.drawingUrl;  // 그림책 렌더링이 .drawing 사용
+      } else if (existing.drawing) {
+        diary[r.date].drawing = existing.drawing;
+        if (existing.drawingUrl) diary[r.date].drawingUrl = existing.drawingUrl;
+      }
     });
     localStorage.setItem('kukku_diary', JSON.stringify(diary));
   }
@@ -3380,7 +3390,7 @@ function savePaintToRecord() {
 
   const todayDs = new Date().toISOString().split('T')[0];
   if (!diary[todayDs]) diary[todayDs] = {};
-  diary[todayDs].drawing = dataUrl;
+  diary[todayDs].drawing = dataUrl;  // 임시: 즉시 표시용 (서버 응답 오기 전)
 
   // 용량 보호: 60일 이상 지난 그림은 자동 삭제 (텍스트 기록은 보존)
   const cutoff = new Date();
@@ -3412,7 +3422,35 @@ function savePaintToRecord() {
       return;
     }
   }
-  showToast('✨ 그림책에 담았어! 오늘의 마음 그림책에서 볼 수 있어 🎨');
+
+  // ★ Google Drive에 업로드 (다른 컴퓨터에서도 보이도록 동기화)
+  if (currentUser) {
+    showToast('☁️ 그림책에 담는 중... 잠시만 기다려줘 🎨');
+    gasRequest({
+      action: 'saveDrawing',
+      email: currentUser.email,
+      drawingBase64: dataUrl,
+      recordDate: todayDs
+    }).then(r => {
+      if (r && r.success && r.drawingUrl) {
+        // 서버 URL로 교체 (로컬 base64 → 서버 URL)
+        // 다른 기기에서 sync 받을 때도 이 URL로 표시됨
+        diary[todayDs].drawingUrl = r.drawingUrl;
+        // 로컬 base64는 삭제 안 함 (오프라인 즉시 표시용)
+        try { saveDiary(); } catch(e) {}
+        showToast('✨ 그림책에 담았어! 다른 기기에서도 볼 수 있어 🎨');
+      } else {
+        const msg = (r && r.message) ? r.message : '서버 응답 없음';
+        showToast('⚠️ 그림은 이 기기에만 저장됐어 (' + msg + ')');
+        console.log('[saveDrawing] 실패:', r);
+      }
+    }).catch(e => {
+      showToast('⚠️ 그림은 이 기기에만 저장됐어 (네트워크 오류)');
+      console.log('[saveDrawing] 네트워크 오류:', e);
+    });
+  } else {
+    showToast('✨ 그림책에 담았어! 오늘의 마음 그림책에서 볼 수 있어 🎨');
+  }
 }
 
 function setPaintTool(tool) {
