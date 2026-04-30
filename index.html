@@ -2015,6 +2015,15 @@ let viewYear = new Date().getFullYear();
 let viewMonth = new Date().getMonth();
 let calYear = new Date().getFullYear();
 let calMonth = new Date().getMonth();
+
+// ★ 한국시간 기준 yyyy-MM-dd 문자열 반환 (toISOString은 UTC라 한국 새벽엔 어제로 나오는 버그가 있음)
+function getKoreaDate(date) {
+  const d = date || new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
 let paintTool = 'pen';
 let paintColor = '#3DD6B5';
 let isDrawing = false;
@@ -2124,7 +2133,7 @@ window.onload = async () => {
   initPaintCanvas();
   updateStats();
   updateLulu();
-  document.getElementById('recordDate').value = new Date().toISOString().split('T')[0];
+  document.getElementById('recordDate').value = getKoreaDate();
   showPage('home');
   updatePageNav();
 
@@ -2283,7 +2292,7 @@ function updateStats() {
   const today = new Date();
   for (let i = 0; i < 365; i++) {
     const d = new Date(today); d.setDate(d.getDate() - i);
-    const ds = d.toISOString().split('T')[0];
+    const ds = getKoreaDate(d);
     if (diary[ds]) streak++;
     else if (i > 0) break;
   }
@@ -2550,7 +2559,7 @@ function goStep(n) {
 // SAVE RECORD
 // ============================================================
 function saveRecord() {
-  const ds = document.getElementById('recordDate').value || new Date().toISOString().split('T')[0];
+  const ds = document.getElementById('recordDate').value || getKoreaDate();
   const temp = document.getElementById('tempSlider').value;
   const colorName = document.getElementById('colorNameInput').value || '이름 없는 색';
   const answer = document.getElementById('answerBox').value;
@@ -2952,7 +2961,7 @@ function renderCalendar() {
   document.getElementById('calLabel').textContent = `${calYear}년 ${months[calMonth]}`;
   const days = new Date(calYear, calMonth+1, 0).getDate();
   const firstDay = (new Date(calYear, calMonth, 1).getDay() + 6) % 7;
-  const today = new Date().toISOString().split('T')[0];
+  const today = getKoreaDate();
   const grid = document.getElementById('calGrid');
   grid.innerHTML = '';
 
@@ -3388,7 +3397,7 @@ function savePaintToRecord() {
   // JPEG 압축 (60% — 화질 유지하면서 용량 절감)
   const dataUrl = mergedCanvas.toDataURL('image/jpeg', 0.6);
 
-  const todayDs = new Date().toISOString().split('T')[0];
+  const todayDs = getKoreaDate();
   if (!diary[todayDs]) diary[todayDs] = {};
   diary[todayDs].drawing = dataUrl;  // 임시: 즉시 표시용 (서버 응답 오기 전)
 
@@ -3470,7 +3479,7 @@ function clearCanvas() {
 function saveCanvasImg() {
   const canvas = document.getElementById('drawCanvas');
   const link = document.createElement('a');
-  link.download = '쿠쿠_그림판_' + new Date().toISOString().split('T')[0] + '.png';
+  link.download = '쿠쿠_그림판_' + getKoreaDate() + '.png';
   link.href = canvas.toDataURL();
   link.click();
   showToast('💾 그림을 저장했어!');
@@ -3480,7 +3489,7 @@ function saveCanvasImg() {
 // PRESCRIPTION
 // ============================================================
 async function runPrescription() {
-  const todayDs = new Date().toISOString().split('T')[0];
+  const todayDs = getKoreaDate();
   const rec = diary[todayDs];
 
   const loading = document.getElementById('rxLoading');
@@ -3812,7 +3821,7 @@ function getStreakDays() {
   const today = new Date();
   for (let i = 0; i < 365; i++) {
     const d = new Date(today); d.setDate(d.getDate() - i);
-    const ds = d.toISOString().split('T')[0];
+    const ds = getKoreaDate(d);
     if (diary[ds]) streak++;
     else if (i > 0) break;
   }
