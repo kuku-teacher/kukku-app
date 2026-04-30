@@ -2036,6 +2036,41 @@ let lastX = 0, lastY = 0;
 async function syncFromServer() {
   if (!currentUser) return;
 
+  // ★ 0단계: 옛 형식 키 자동 정리 (1회성 마이그레이션)
+  // 옛 GAS 버그로 '2026-04-29T15:00:00.000Z' 같은 ISO 형식 키가 섞여있을 수 있음
+  // → '2026-04-29' (한국시간 yyyy-MM-dd)로 통일하면서 데이터 머지
+  let migratedCount = 0;
+  Object.keys(diary).forEach(key => {
+    // 정상 키('2026-04-29')는 길이 10. 이보다 길면 ISO 형식
+    if (key.length > 10 && key.includes('T')) {
+      // ISO 키 → Date 객체로 파싱 후 한국시간 기준으로 정규화
+      const d = new Date(key);
+      if (!isNaN(d.getTime())) {
+        const normalKey = getKoreaDate(d);
+        if (!diary[normalKey]) {
+          // 정상 키가 없으면 옛 데이터를 그대로 옮김
+          diary[normalKey] = diary[key];
+        } else {
+          // 둘 다 있으면 머지 (그림은 서로 다른 키에 있을 수 있음)
+          const oldData = diary[key];
+          const newData = diary[normalKey];
+          // 그림 보존: 둘 중 하나라도 있으면 살림
+          if (oldData.drawing && !newData.drawing) newData.drawing = oldData.drawing;
+          if (oldData.drawingUrl && !newData.drawingUrl) newData.drawingUrl = oldData.drawingUrl;
+          // 답변·감정 등은 새 키 데이터 우선 (있으면 유지)
+          if (!newData.answer && oldData.answer) newData.answer = oldData.answer;
+          if (!newData.emotion && oldData.emotion) newData.emotion = oldData.emotion;
+        }
+        delete diary[key];
+        migratedCount++;
+      }
+    }
+  });
+  if (migratedCount > 0) {
+    localStorage.setItem('kukku_diary', JSON.stringify(diary));
+    console.log(`🔧 옛 형식 ${migratedCount}개의 일기 키를 정리했어요`);
+  }
+
   // ① 일기 전체 조회 (year/month 생략 = 전체)
   // 다른 컴퓨터/주말 집 PC에서도 모든 기록을 복원할 수 있도록
   const result = await gasRequest({
