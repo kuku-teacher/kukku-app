@@ -898,9 +898,23 @@ let currentUser = JSON.parse(localStorage.getItem('kukku_user') || 'null');
 
 async function gasRequest(payload) {
   try {
-    const res = await fetch(GAS_URL + '?data=' + encodeURIComponent(JSON.stringify(payload)));
+    const json = JSON.stringify(payload);
+    // ★ URL 길이 제한 회피: 큰 데이터(특히 그림 base64)는 POST로 전송
+    // GET URL은 ~8KB 한도라 그림이 들어가면 400 Bad Request 발생
+    // POST는 본문 크기 제한이 훨씬 너그러움 (~50MB)
+    const useLargePost = json.length > 4000;
+    const res = useLargePost
+      ? await fetch(GAS_URL, {
+          method: 'POST',
+          // GAS는 text/plain일 때 CORS preflight 없이 바로 처리됨
+          // (application/json으로 보내면 preflight 발생 → CORS 차단됨)
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: json
+        })
+      : await fetch(GAS_URL + '?data=' + encodeURIComponent(json));
     return await res.json();
   } catch(e) {
+    console.log('[gasRequest] 오류:', e);
     return { success: false, message: '서버 연결 실패 😢' };
   }
 }
