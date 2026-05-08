@@ -1466,9 +1466,10 @@ function logoutUser() {
             <!-- 이미지 불러오기 -->
             <label style="display:inline-flex;align-items:center;gap:5px;padding:7px 13px;border-radius:12px;border:1.5px solid rgba(61,214,181,0.3);background:rgba(255,255,255,0.7);font-size:0.82rem;color:#4a7080;cursor:pointer;transition:all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.95)'" onmouseout="this.style.background='rgba(255,255,255,0.7)'">
               🖼️ 이미지 불러오기
-              <input type="file" id="bgImageInput" accept="image/*" onchange="loadBgImage(event)" style="display:none;">
+            <input type="file" id="bgImageInput" accept="image/*" onchange="loadBgImage(event)" style="display:none;">
             </label>
             <button class="tool-btn" onclick="clearBgImage()" id="btnClearBg" style="display:none;">🗑️ 배경 제거</button>
+            <button class="tool-btn" id="btnUndo" onclick="undoCanvas()" title="한 단계 되돌리기 (Ctrl+Z)" style="opacity:0.4;cursor:not-allowed;">↩️ 되돌리기</button>
             <button class="tool-btn" onclick="clearCanvas()">✨ 전체 지우기</button>
           </div>
         </div>
@@ -2336,13 +2337,13 @@ function updateStats() {
   document.getElementById('totalRecords').textContent = total;
   document.getElementById('homeStamps').textContent = stamps;
   document.getElementById('topStampCount').textContent = stamps;
-  // streak
+  // streak — 과거 날짜로 기록한 항목(isBackdated)은 제외
   let streak = 0;
   const today = new Date();
   for (let i = 0; i < 365; i++) {
     const d = new Date(today); d.setDate(d.getDate() - i);
     const ds = getKoreaDate(d);
-    if (diary[ds]) streak++;
+    if (diary[ds] && !diary[ds].isBackdated) streak++;
     else if (i > 0) break;
   }
   document.getElementById('streakDays').textContent = streak;
@@ -2613,17 +2614,40 @@ function saveRecord() {
   const colorName = document.getElementById('colorNameInput').value || '이름 없는 색';
   const answer = document.getElementById('answerBox').value;
 
-  // ★ 하루 1회 정책: 오늘 이미 기록이 있는지 체크
-  // 기존 기록은 emotion이 있는 정상 기록만 카운트 (그림만 첨부된 케이스 제외)
+  // ★ 오늘 날짜인지 확인 (과거 날짜 기록은 스탬프·연속일 미적용)
+  const today = getKoreaDate();
+  const isToday = (ds === today);
+  const isPastDate = (ds < today);
+  const isFutureDate = (ds > today);
+
+  // 미래 날짜 차단
+  if (isFutureDate) {
+    alert('미래 날짜에는 기록할 수 없어! 🌊\n\n오늘 날짜로 기록하거나, 지나간 날짜의 추억을 적어줘 🐚');
+    return;
+  }
+
+  // ★ 하루 1회 정책: 같은 날짜 이미 기록이 있는지 체크
   const isUpdate = !!(diary[ds] && diary[ds].emotion);
 
   if (isUpdate) {
-    // 수정 확인: 학생이 의도하지 않은 덮어쓰기 방지
     const ok = confirm(
-      '오늘은 이미 마음 기록을 했어 🐚\n\n'
-      + '다시 저장하면 오늘 기록이 새로 쓴 내용으로 바뀌어.\n'
-      + '대신 스탬프는 하루에 1개만 받을 수 있어!\n\n'
-      + '정말 오늘 기록을 고쳐서 저장할까?'
+      (isToday ? '오늘은 이미 마음 기록을 했어 🐚' : '이 날짜에는 이미 기록이 있어 📅') + '\n\n'
+      + '다시 저장하면 그 날 기록이 새로 쓴 내용으로 바뀌어.\n'
+      + (isToday ? '스탬프는 하루에 1개만 받을 수 있어!\n\n' : '\n')
+      + '정말 고쳐서 저장할까?'
+    );
+    if (!ok) return;
+  }
+
+  // ★ 과거 날짜 기록은 안내 후 진행 (스탬프 X, 연속일 X)
+  if (isPastDate && !isUpdate) {
+    const ok = confirm(
+      '📅 지난 날짜의 기록을 남기는 거구나!\n\n'
+      + '지난 날 마음을 돌아보는 건 정말 의미 있어 💙\n'
+      + '하지만 ' + ds + '은 오늘이 아니라서:\n\n'
+      + '• 스탬프는 받지 않아 🐚\n'
+      + '• 연속 기록일에도 포함되지 않아\n\n'
+      + '그래도 마음을 적어두고 싶다면 진행해줘!'
     );
     if (!ok) return;
   }
@@ -2639,12 +2663,13 @@ function saveRecord() {
     colorName,
     question: currentQuestion?.q || '',
     answer,
-    timestamp: Date.now()
+    timestamp: Date.now(),
+    isBackdated: isPastDate  // ★ 과거 기록임을 표시 (그림책 등에서 활용 가능)
   };
   if (existingDrawing) diary[ds].drawing = existingDrawing;
 
-  // ★ 스탬프는 신규 기록일 때만 +1 (수정은 스탬프 없음)
-  if (!isUpdate) {
+  // ★ 스탬프는 "오늘 + 신규 기록"일 때만 +1 (과거 날짜·수정 모두 제외)
+  if (isToday && !isUpdate) {
     stamps += 1;
   }
   saveDiary();
@@ -2694,10 +2719,14 @@ function saveRecord() {
   renderMandala();
   renderCalendar();
 
-  // 완료 화면 메시지를 수정/신규에 맞게
+  // 완료 화면 메시지를 수정/신규/과거 날짜에 맞게
   const completeMsg = document.querySelector('.complete-msg');
   const completeSub = document.querySelector('.complete-sub');
-  if (isUpdate) {
+  if (isPastDate) {
+    if (completeMsg) completeMsg.textContent = '지난 날의 마음을 남겼어 📅';
+    if (completeSub) completeSub.textContent = '지나간 날을 돌아보는 것도 큰 용기야 💙 (오늘 기록이 아니라 스탬프는 없어요)';
+    showToast('📅 ' + ds + ' 기록을 남겼어!');
+  } else if (isUpdate) {
     if (completeMsg) completeMsg.textContent = '오늘 기록을 다시 다듬었어 ✏️';
     if (completeSub) completeSub.textContent = '오늘 마음을 한 번 더 들여다봤구나! (스탬프는 하루 1개 ❤️)';
     showToast('✏️ 오늘 기록을 수정했어!');
@@ -3175,6 +3204,8 @@ function initPaintCanvas() {
 
   function startDraw(e) {
     isDrawing = true;
+    // ★ 그리기 시작 시점의 캔버스 상태를 undo 스택에 저장
+    pushUndoState();
     const p = getPos(e);
     lastX = p.x; lastY = p.y;
     const size = parseInt(document.getElementById('brushSize').value);
@@ -3518,11 +3549,76 @@ function setPaintTool(tool) {
   });
 }
 
+// ============================================================
+// 그림판 되돌리기 (Undo) 시스템
+// ============================================================
+// 캔버스 상태를 ImageData 스택으로 저장. 최대 20단계까지 되돌리기 가능
+// (메모리 절약: 너무 많이 쌓이면 가장 오래된 것부터 삭제)
+let undoStack = [];
+const UNDO_LIMIT = 20;
+
+function pushUndoState() {
+  const canvas = document.getElementById('drawCanvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  try {
+    const state = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    undoStack.push(state);
+    if (undoStack.length > UNDO_LIMIT) undoStack.shift(); // 오래된 것 삭제
+    updateUndoButton();
+  } catch(e) {
+    // CORS 이슈 등으로 실패하는 경우 (외부 이미지가 캔버스에 그려진 경우 등)
+    console.log('[undo] 상태 저장 실패:', e);
+  }
+}
+
+function undoCanvas() {
+  const canvas = document.getElementById('drawCanvas');
+  if (!canvas || undoStack.length === 0) return;
+  const ctx = canvas.getContext('2d');
+  const prevState = undoStack.pop();
+  ctx.putImageData(prevState, 0, 0);
+  updateUndoButton();
+  showToast('↩️ 한 단계 되돌렸어!');
+}
+
+function updateUndoButton() {
+  const btn = document.getElementById('btnUndo');
+  if (!btn) return;
+  if (undoStack.length === 0) {
+    btn.style.opacity = '0.4';
+    btn.style.cursor = 'not-allowed';
+  } else {
+    btn.style.opacity = '1';
+    btn.style.cursor = 'pointer';
+  }
+}
+
+function clearUndoStack() {
+  undoStack = [];
+  updateUndoButton();
+}
+
+// Ctrl+Z 단축키 지원
+document.addEventListener('keydown', function(e) {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+    // 그림판 페이지에서만 동작
+    const drawCanvas = document.getElementById('drawCanvas');
+    const paintPage = document.getElementById('page-paint');
+    if (drawCanvas && paintPage && paintPage.style.display !== 'none') {
+      e.preventDefault();
+      undoCanvas();
+    }
+  }
+});
+
 function clearCanvas() {
   const canvas = document.getElementById('drawCanvas');
   const ctx = canvas.getContext('2d');
+  // ★ 전체 지우기 전에 undo 스택에 현재 상태 저장 (실수로 지웠을 때 복구 가능)
+  pushUndoState();
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  showToast('✨ 캔버스를 깨끗이 지웠어!');
+  showToast('✨ 캔버스를 깨끗이 지웠어! (↩️ 되돌리기로 복구 가능)');
 }
 
 function saveCanvasImg() {
@@ -3864,14 +3960,14 @@ async function renderPicturebook() {
 // ============================================================
 // SHOP
 // ============================================================
-// 연속 기록일 계산 (특수 스티커 잠금에 사용)
+// 연속 기록일 계산 (특수 스티커 잠금에 사용) — 과거 날짜 기록은 제외
 function getStreakDays() {
   let streak = 0;
   const today = new Date();
   for (let i = 0; i < 365; i++) {
     const d = new Date(today); d.setDate(d.getDate() - i);
     const ds = getKoreaDate(d);
-    if (diary[ds]) streak++;
+    if (diary[ds] && !diary[ds].isBackdated) streak++;
     else if (i > 0) break;
   }
   return streak;
