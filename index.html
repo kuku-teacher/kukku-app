@@ -919,6 +919,9 @@ async function gasRequest(payload) {
   }
 }
 
+// 로그인 흐름 임시 변수 (PIN 단계로 이메일/닉네임 전달용)
+let _pendingLogin = null;
+
 async function loginUser() {
   const email = document.getElementById('loginEmail').value.trim();
   const btn = document.getElementById('loginBtn');
@@ -927,30 +930,139 @@ async function loginUser() {
   const result = await gasRequest({ action: 'login', email });
   btn.textContent = '바다 속으로 🐟';
   if (!result.success) { alert(result.message); return; }
+
   if (result.isNew) {
+    // 첫 가입 → 닉네임 등록 화면
+    _pendingLogin = { email };
     document.getElementById('loginOverlay').style.display = 'none';
     document.getElementById('nicknameOverlay').style.display = 'flex';
-  } else {
-    currentUser = { email: result.email, nickname: result.nickname };
-    localStorage.setItem('kukku_user', JSON.stringify(currentUser));
+    return;
+  }
+
+  // 기존 사용자
+  _pendingLogin = { email, nickname: result.nickname };
+
+  if (result.hasPin) {
+    // PIN 있음 → 비밀번호 입력 화면
     document.getElementById('loginOverlay').style.display = 'none';
-    document.getElementById('userNameDisplay').textContent = result.nickname;
-    if (typeof syncFromServer === 'function') await syncFromServer();
-    if (typeof showToast === 'function') showToast(result.nickname + ', 쿠쿠가 기다렸어! 🐟');
+    document.getElementById('pinLoginGreeting').textContent = `${result.nickname}, 비밀번호를 입력해줘!`;
+    document.getElementById('pinLoginInput').value = '';
+    document.getElementById('pinLoginError').textContent = '';
+    document.getElementById('pinLoginOverlay').style.display = 'flex';
+    setTimeout(() => document.getElementById('pinLoginInput').focus(), 100);
+  } else {
+    // PIN 없음 (기존 가입자) → PIN 설정 화면 자동 표시
+    document.getElementById('loginOverlay').style.display = 'none';
+    showPinSetup();
   }
 }
 
 async function registerNickname() {
   const nickname = document.getElementById('nicknameInput').value.trim();
-  const email = currentUser?.email || document.getElementById('loginEmail').value.trim();
+  const email = _pendingLogin?.email || currentUser?.email || document.getElementById('loginEmail').value.trim();
   if (!nickname) { alert('닉네임을 입력해줘! 🐚'); return; }
   const result = await gasRequest({ action: 'registerNickname', email, nickname });
   if (!result.success) { alert(result.message); return; }
+  _pendingLogin = { email, nickname };
+  document.getElementById('nicknameOverlay').style.display = 'none';
+  // 닉네임 등록 후 → PIN 설정 단계로
+  showPinSetup();
+}
+
+// ============================================================
+// 🔐 PIN 설정 (첫 가입 + 기존 사용자 추가 등록)
+// ============================================================
+function showPinSetup() {
+  document.getElementById('pinSetupInput1').value = '';
+  document.getElementById('pinSetupInput2').value = '';
+  document.getElementById('pinSetupOverlay').style.display = 'flex';
+  setTimeout(() => document.getElementById('pinSetupInput1').focus(), 100);
+}
+
+async function submitPinSetup() {
+  const pin1 = document.getElementById('pinSetupInput1').value.trim();
+  const pin2 = document.getElementById('pinSetupInput2').value.trim();
+
+  if (!/^\d{4}$/.test(pin1)) { alert('비밀번호는 숫자 4자리여야 해! 🔐'); return; }
+  if (pin1 !== pin2) {
+    alert('두 비밀번호가 달라! 다시 확인해줘 🌊');
+    document.getElementById('pinSetupInput2').value = '';
+    document.getElementById('pinSetupInput2').focus();
+    return;
+  }
+
+  // 너무 쉬운 PIN 경고 (그래도 사용자가 원하면 허용)
+  const tooSimple = ['0000','1111','2222','3333','4444','5555','6666','7777','8888','9999','1234','4321'];
+  if (tooSimple.includes(pin1)) {
+    if (!confirm('이 비밀번호는 친구가 맞히기 쉬워 😅\n그래도 이걸로 할까?')) {
+      document.getElementById('pinSetupInput1').value = '';
+      document.getElementById('pinSetupInput2').value = '';
+      document.getElementById('pinSetupInput1').focus();
+      return;
+    }
+  }
+
+  const email = _pendingLogin?.email;
+  const nickname = _pendingLogin?.nickname;
+  const result = await gasRequest({ action: 'setPin', email, pin: pin1 });
+  if (!result.success) { alert(result.message); return; }
+
+  // PIN 등록 완료 → 로그인 처리
   currentUser = { email, nickname };
   localStorage.setItem('kukku_user', JSON.stringify(currentUser));
-  document.getElementById('nicknameOverlay').style.display = 'none';
+  document.getElementById('pinSetupOverlay').style.display = 'none';
   document.getElementById('userNameDisplay').textContent = nickname;
-  if (typeof showToast === 'function') showToast('어서와! 쿠쿠랑 같이 기록하자 🌊');
+  _pendingLogin = null;
+
+  if (typeof syncFromServer === 'function') await syncFromServer();
+  if (typeof showToast === 'function') showToast('🔐 비밀번호 설정 완료! 잘 기억해줘 💙');
+}
+
+// ============================================================
+// 🔓 PIN 로그인 (재방문)
+// ============================================================
+async function submitPinLogin() {
+  const pin = document.getElementById('pinLoginInput').value.trim();
+  const email = _pendingLogin?.email;
+  const errorEl = document.getElementById('pinLoginError');
+
+  if (!/^\d{4}$/.test(pin)) {
+    errorEl.textContent = '숫자 4자리를 입력해줘';
+    return;
+  }
+
+  document.getElementById('pinLoginBtn').textContent = '확인 중...🌊';
+  const result = await gasRequest({ action: 'verifyPin', email, pin });
+  document.getElementById('pinLoginBtn').textContent = '들어가기 🌊';
+
+  if (result.success) {
+    currentUser = { email, nickname: result.nickname };
+    localStorage.setItem('kukku_user', JSON.stringify(currentUser));
+    document.getElementById('pinLoginOverlay').style.display = 'none';
+    document.getElementById('userNameDisplay').textContent = result.nickname;
+    _pendingLogin = null;
+    if (typeof syncFromServer === 'function') await syncFromServer();
+    if (typeof showToast === 'function') showToast(result.nickname + ', 쿠쿠가 기다렸어! 🐟');
+  } else {
+    errorEl.textContent = result.message || '비밀번호가 틀렸어';
+    document.getElementById('pinLoginInput').value = '';
+    document.getElementById('pinLoginInput').focus();
+    if (result.locked) {
+      // 잠금 상태면 입력칸 비활성화
+      document.getElementById('pinLoginInput').disabled = true;
+      document.getElementById('pinLoginBtn').disabled = true;
+      document.getElementById('pinLoginBtn').style.opacity = '0.4';
+    }
+  }
+}
+
+function cancelPinLogin() {
+  document.getElementById('pinLoginOverlay').style.display = 'none';
+  document.getElementById('pinLoginInput').disabled = false;
+  document.getElementById('pinLoginBtn').disabled = false;
+  document.getElementById('pinLoginBtn').style.opacity = '1';
+  document.getElementById('loginOverlay').style.display = 'flex';
+  _pendingLogin = null;
 }
 
 function logoutUser() {
@@ -987,6 +1099,53 @@ function logoutUser() {
       onkeydown="if(event.key==='Enter') registerNickname()">
     <button onclick="registerNickname()" style="background:linear-gradient(135deg,#ff7f5c,#ffb347);color:white;border:none;border-radius:14px;padding:14px;font-size:1rem;font-family:'Do Hyeon',sans-serif;cursor:pointer;">
       이 이름으로 할게요 🌟
+    </button>
+  </div>
+</div>
+
+<!-- 🔐 PIN 설정 오버레이 (첫 가입 후 또는 기존 학생 첫 보안 등록) -->
+<div id="pinSetupOverlay" style="position:fixed;inset:0;z-index:9999;background:linear-gradient(160deg,#b2f0e8,#dff4fb,#ffe4dc);display:none;flex-direction:column;align-items:center;justify-content:center;gap:14px;font-family:'Gowun Dodum',sans-serif;padding:20px;">
+  <div style="font-size:3rem;">🔐</div>
+  <div style="font-size:1.3rem;font-weight:bold;color:#1a3a4a;">나만의 비밀번호를 만들어줘!</div>
+  <div style="font-size:0.92rem;color:#5a7080;text-align:center;line-height:1.6;max-width:340px;">
+    친구가 내 마음 기록을 못 보게 🐚<br>
+    <strong>숫자 4자리</strong>로 비밀번호를 정해줘<br>
+    <span style="font-size:0.82rem;color:#888;">(생일 끝 4자리 같이 외우기 쉬운 걸로!)</span>
+  </div>
+  <div style="background:white;border-radius:20px;padding:24px 28px;box-shadow:0 8px 32px rgba(61,214,181,0.2);display:flex;flex-direction:column;gap:12px;width:300px;">
+    <label style="font-size:0.85rem;color:#5a7080;">새 비밀번호 (숫자 4자리)</label>
+    <input id="pinSetupInput1" type="tel" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="● ● ● ●"
+      style="border:2px solid #d0f5ee;border-radius:12px;padding:14px;font-size:1.3rem;text-align:center;letter-spacing:8px;font-family:monospace;outline:none;"
+      oninput="this.value=this.value.replace(/\D/g,'').slice(0,4)">
+    <label style="font-size:0.85rem;color:#5a7080;margin-top:4px;">한 번 더 입력해줘</label>
+    <input id="pinSetupInput2" type="tel" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="● ● ● ●"
+      style="border:2px solid #d0f5ee;border-radius:12px;padding:14px;font-size:1.3rem;text-align:center;letter-spacing:8px;font-family:monospace;outline:none;"
+      oninput="this.value=this.value.replace(/\D/g,'').slice(0,4)"
+      onkeydown="if(event.key==='Enter') submitPinSetup()">
+    <button onclick="submitPinSetup()" style="background:linear-gradient(135deg,#3dd6b5,#7ec8e3);color:white;border:none;border-radius:14px;padding:14px;font-size:1rem;font-family:'Do Hyeon',sans-serif;cursor:pointer;margin-top:6px;">
+      비밀번호 만들기 🔐
+    </button>
+    <div style="font-size:0.78rem;color:#999;text-align:center;line-height:1.5;margin-top:4px;">
+      💡 잊어버리면 선생님께 말씀해줘<br>(선생님이 다시 만들 수 있게 해줄 거야)
+    </div>
+  </div>
+</div>
+
+<!-- 🔓 PIN 입력 오버레이 (재방문 시) -->
+<div id="pinLoginOverlay" style="position:fixed;inset:0;z-index:9999;background:linear-gradient(160deg,#b2f0e8,#dff4fb,#ffe4dc);display:none;flex-direction:column;align-items:center;justify-content:center;gap:14px;font-family:'Gowun Dodum',sans-serif;">
+  <div style="font-size:3rem;">🔓</div>
+  <div id="pinLoginGreeting" style="font-size:1.2rem;font-weight:bold;color:#1a3a4a;">비밀번호를 입력해줘!</div>
+  <div style="background:white;border-radius:20px;padding:24px 28px;box-shadow:0 8px 32px rgba(61,214,181,0.2);display:flex;flex-direction:column;gap:12px;width:300px;">
+    <input id="pinLoginInput" type="tel" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="● ● ● ●"
+      style="border:2px solid #d0f5ee;border-radius:12px;padding:14px;font-size:1.4rem;text-align:center;letter-spacing:10px;font-family:monospace;outline:none;"
+      oninput="this.value=this.value.replace(/\D/g,'').slice(0,4)"
+      onkeydown="if(event.key==='Enter') submitPinLogin()">
+    <div id="pinLoginError" style="font-size:0.85rem;color:#e74c3c;text-align:center;min-height:18px;"></div>
+    <button id="pinLoginBtn" onclick="submitPinLogin()" style="background:linear-gradient(135deg,#3dd6b5,#7ec8e3);color:white;border:none;border-radius:14px;padding:14px;font-size:1rem;font-family:'Do Hyeon',sans-serif;cursor:pointer;">
+      들어가기 🌊
+    </button>
+    <button onclick="cancelPinLogin()" style="background:transparent;border:none;color:#888;font-size:0.85rem;cursor:pointer;margin-top:4px;text-decoration:underline;">
+      다른 계정으로 로그인
     </button>
   </div>
 </div>
@@ -2187,11 +2346,30 @@ window.onload = async () => {
   showPage('home');
   updatePageNav();
 
-  // 자동 로그인 체크
+  // 자동 로그인 체크 — 단, PIN이 등록된 사용자라면 PIN 입력 요구
   if (currentUser) {
-    document.getElementById('loginOverlay').style.display = 'none';
-    document.getElementById('userNameDisplay').textContent = currentUser.nickname || '';
-    await syncFromServer();
+    // 서버에 PIN 등록되어 있는지 확인
+    const loginCheck = await gasRequest({ action: 'login', email: currentUser.email });
+    if (loginCheck.success && !loginCheck.isNew && loginCheck.hasPin) {
+      // PIN 있는 사용자 → 캐시 자동 로그인 막고 PIN 입력 요구
+      _pendingLogin = { email: currentUser.email, nickname: loginCheck.nickname };
+      document.getElementById('loginOverlay').style.display = 'none';
+      document.getElementById('pinLoginGreeting').textContent = `${loginCheck.nickname}, 비밀번호를 입력해줘!`;
+      document.getElementById('pinLoginInput').value = '';
+      document.getElementById('pinLoginError').textContent = '';
+      document.getElementById('pinLoginOverlay').style.display = 'flex';
+      setTimeout(() => document.getElementById('pinLoginInput').focus(), 100);
+    } else if (loginCheck.success && !loginCheck.isNew && !loginCheck.hasPin) {
+      // 기존 사용자인데 PIN 아직 안 만든 상태 → PIN 설정 화면
+      _pendingLogin = { email: currentUser.email, nickname: loginCheck.nickname };
+      document.getElementById('loginOverlay').style.display = 'none';
+      showPinSetup();
+    } else {
+      // 그 외 (서버 연결 실패 등) → 일단 진행 (오프라인에서도 쓸 수 있게)
+      document.getElementById('loginOverlay').style.display = 'none';
+      document.getElementById('userNameDisplay').textContent = currentUser.nickname || '';
+      await syncFromServer();
+    }
   }
 };
 
