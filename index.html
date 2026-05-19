@@ -2546,6 +2546,24 @@ async function syncFromServer() {
   renderMandala();
   renderCalendar();
   renderShop();
+
+  // ★ 긴급 정리: 이벤트 스티커가 바다에 무한 증식된 경우 1마리만 남기고 제거
+  // (이전 버그로 학생들 바다에 별빛 해마가 여러 마리 쌓였을 수 있음)
+  let cleanupCount = 0;
+  SHOP_ITEMS.filter(s => s.eventOnly).forEach(eventItem => {
+    const matching = oceanLayout.filter(l => l.itemId === eventItem.id);
+    if (matching.length > 1) {
+      // 첫 번째 1개만 남기고 나머지 제거
+      const keep = matching[0];
+      oceanLayout = oceanLayout.filter(l => l.itemId !== eventItem.id || l === keep);
+      cleanupCount += matching.length - 1;
+    }
+  });
+  if (cleanupCount > 0) {
+    console.log(`🧹 이벤트 스티커 ${cleanupCount}마리 정리됨 (1마리만 남김)`);
+    saveDiary();  // 정리된 상태로 저장
+  }
+
   restoreOceanLayout(); // 바다 배치 다시 그리기
 
   // ★ 이벤트 체크 (오늘이 이벤트 날이면 자동 스티커 지급 + 팝업)
@@ -4469,10 +4487,16 @@ function renderShop() {
 }
 
 function buyItem(item) {
-  // ★ 이벤트 한정 스티커는 구매 불가 (이미 무료 지급되었거나 이벤트 종료)
+  // ★ 이벤트 한정 스티커: 바다에 한 마리만 존재 (무한 클릭 방지)
   if (item.eventOnly) {
     if (ownedItems.includes(item.id)) {
-      // 이미 가지고 있으면 바다에 추가
+      // 바다에 이미 같은 스티커가 있는지 확인
+      const alreadyInOcean = oceanLayout.some(l => l.itemId === item.id);
+      if (alreadyInOcean) {
+        showToast(`✨ ${item.name}은(는) 이미 바다에 있어! 바다에서 위치를 옮길 수 있어 💙`);
+        return;
+      }
+      // 바다에 없을 때만 새로 추가 (한 마리 한정)
       addStickerToOcean(item, null, true);
       showToast(`🐶 ${item.name}이(가) 바다에 등장했어! ✨`);
     } else {
