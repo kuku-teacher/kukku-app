@@ -940,6 +940,18 @@ async function loginUser() {
     return;
   }
 
+  // ★ 비활성 계정 (강퇴/일시정지) — localStorage도 정리하고 로그인 화면 유지
+  if (result && result.deactivated) {
+    localStorage.removeItem('kukku_user');
+    localStorage.removeItem('kukku_diary');
+    localStorage.removeItem('kukku_stamps');
+    localStorage.removeItem('kukku_owned');
+    localStorage.removeItem('kukku_ocean');
+    alert('🚫 이 계정은 현재 사용할 수 없어요.\n\n선생님께 문의해주세요.');
+    document.getElementById('loginEmail').value = '';
+    return;
+  }
+
   if (!result.success) { alert(result.message); return; }
 
   if (result.isNew) {
@@ -2597,6 +2609,19 @@ window.onload = async () => {
       document.getElementById('approvalPendingNickname').textContent =
         loginCheck.nickname ? `${loginCheck.nickname} 학생, 환영해! 💙` : '';
       document.getElementById('approvalPendingOverlay').style.display = 'flex';
+      return;
+    }
+
+    // ★ 비활성 계정 — 자동 로그인 시에도 차단, 캐시 정리
+    if (loginCheck && loginCheck.deactivated) {
+      localStorage.removeItem('kukku_user');
+      localStorage.removeItem('kukku_diary');
+      localStorage.removeItem('kukku_stamps');
+      localStorage.removeItem('kukku_owned');
+      localStorage.removeItem('kukku_ocean');
+      currentUser = null;
+      alert('🚫 이 계정은 현재 사용할 수 없어요.\n\n선생님께 문의해주세요.');
+      document.getElementById('loginOverlay').style.display = 'flex';
       return;
     }
 
