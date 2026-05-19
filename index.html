@@ -1153,6 +1153,12 @@ async function submitPinLogin() {
       document.getElementById('pinLoginInput').disabled = true;
       document.getElementById('pinLoginBtn').disabled = true;
       document.getElementById('pinLoginBtn').style.opacity = '0.4';
+      // 영구 잠금은 alert로 한 번 더 강조 (학생이 놓치지 않도록)
+      if (result.permanent) {
+        setTimeout(() => {
+          alert('🔒 비밀번호를 5번 틀려서 계정이 잠겼어!\n\n선생님께 가서 "비밀번호 풀어주세요"라고 말씀드려줘 🐚\n\n선생님이 풀어주시면 다시 사용할 수 있어!');
+        }, 200);
+      }
     }
   }
 }
@@ -2484,6 +2490,9 @@ async function syncFromServer() {
       const fullEmotion = EMOTIONS.find(e => e.label === r.emotion) || { id:'', emoji:'', label: r.emotion, color:'' };
       // 기존 로컬 그림이 있으면 보존하면서 머지
       const existing = diary[r.date] || {};
+      // ★ 서버에 저장된 시각(r.createdAt 또는 11번째 컬럼)을 timestamp로 사용
+      // 이걸로 isBackdated 자동 판별 가능 (savedDate !== r.date이면 과거 기록)
+      const recordTimestamp = r.createdAt ? new Date(r.createdAt).getTime() : (existing.timestamp || Date.now());
       diary[r.date] = {
         emotion:   { id: fullEmotion.id, emoji: fullEmotion.emoji, label: fullEmotion.label, color: fullEmotion.color },
         colors:    [r.colorHex],
@@ -2492,7 +2501,11 @@ async function syncFromServer() {
         colorName: r.colorName,
         question:  r.question,
         answer:    r.diary,
-        timestamp: Date.now()
+        timestamp: recordTimestamp,
+        // ★ isBackdated 보존: 기존 로컬에 있으면 우선 사용, 없으면 timestamp로 추론
+        isBackdated: existing.isBackdated !== undefined
+          ? existing.isBackdated
+          : (getKoreaDate(new Date(recordTimestamp)) !== r.date)
       };
       // ★ 그림 처리: 서버에 drawingUrl 있으면 그걸 사용, 없으면 로컬 base64 유지
       if (r.drawingUrl) {
@@ -2844,17 +2857,42 @@ function updateStats() {
   document.getElementById('totalRecords').textContent = total;
   document.getElementById('homeStamps').textContent = stamps;
   document.getElementById('topStampCount').textContent = stamps;
-  // streak — 과거 날짜로 기록한 항목(isBackdated)은 제외
+  // streak — 과거/미래 날짜로 기록한 항목 제외 (이중 검증)
+  // 검증 1: isBackdated 플래그 (saveRecord 시 표시됨)
+  // 검증 2: timestamp의 날짜와 기록 날짜(ds)가 같은지
+  //   → 동기화 후 isBackdated 누락된 경우에도 안전하게 판별 가능
   let streak = 0;
   const today = new Date();
   for (let i = 0; i < 365; i++) {
     const d = new Date(today); d.setDate(d.getDate() - i);
     const ds = getKoreaDate(d);
-    if (diary[ds] && !diary[ds].isBackdated) streak++;
-    else if (i > 0) break;
+    const entry = diary[ds];
+    if (entry && !isBackdatedEntry(entry, ds)) {
+      streak++;
+    } else if (i > 0) {
+      break;
+    }
   }
   document.getElementById('streakDays').textContent = streak;
   updateLulu();
+}
+
+// 일기 항목이 "과거 날짜에 입력된 것"인지 판단
+// (서버 동기화 후 isBackdated 플래그가 누락돼도 안전하게 판별)
+function isBackdatedEntry(entry, dateStr) {
+  if (!entry) return false;
+  // 1차: 명시적 플래그가 있으면 그걸 신뢰
+  if (entry.isBackdated === true) return true;
+  if (entry.isBackdated === false) return false;
+  // 2차: 플래그 없으면 timestamp로 추론
+  // entry.timestamp = 저장된 시각 (밀리초)
+  // dateStr = 기록의 날짜 (예: '2026-05-18')
+  // 두 날짜가 다르면 = 과거(또는 미래) 날짜로 기록한 것
+  if (entry.timestamp && dateStr) {
+    const savedDate = getKoreaDate(new Date(entry.timestamp));
+    return savedDate !== dateStr;
+  }
+  return false;
 }
 
 function updateLulu() {
@@ -4468,14 +4506,19 @@ async function renderPicturebook() {
 // SHOP
 // ============================================================
 // 연속 기록일 계산 (특수 스티커 잠금에 사용) — 과거 날짜 기록은 제외
+// isBackdatedEntry로 이중 검증 (플래그 + timestamp)
 function getStreakDays() {
   let streak = 0;
   const today = new Date();
   for (let i = 0; i < 365; i++) {
     const d = new Date(today); d.setDate(d.getDate() - i);
     const ds = getKoreaDate(d);
-    if (diary[ds] && !diary[ds].isBackdated) streak++;
-    else if (i > 0) break;
+    const entry = diary[ds];
+    if (entry && !isBackdatedEntry(entry, ds)) {
+      streak++;
+    } else if (i > 0) {
+      break;
+    }
   }
   return streak;
 }
