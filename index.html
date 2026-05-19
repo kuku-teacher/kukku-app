@@ -1295,6 +1295,22 @@ function logoutUser() {
     </button>
   </div>
 </div>
+
+<!-- ⚠️ 선생님 경고 메시지 모달 -->
+<div id="teacherWarningModal" style="position:fixed;inset:0;z-index:10001;background:rgba(0,0,0,0.65);display:none;align-items:center;justify-content:center;font-family:'Gowun Dodum',sans-serif;padding:20px;">
+  <div style="background:white;border-radius:24px;padding:32px 28px;max-width:400px;width:100%;box-shadow:0 20px 60px rgba(231,76,60,0.3);text-align:center;border:3px solid #ffd6cc;">
+    <div style="font-size:3rem;margin-bottom:12px;">⚠️</div>
+    <div style="font-size:1.3rem;font-weight:bold;color:#e74c3c;margin-bottom:14px;">선생님의 안내 메시지</div>
+    <div id="teacherWarningText" style="font-size:0.95rem;color:#1a3a4a;line-height:1.7;text-align:left;background:#fff8f5;padding:18px;border-radius:14px;margin-bottom:20px;white-space:pre-wrap;"></div>
+    <div style="font-size:0.82rem;color:#888;margin-bottom:16px;line-height:1.5;">
+      🐚 쿠쿠는 모두의 마음 일기를 위한 공간이야.<br>
+      정직하게 사용해줘서 고마워!
+    </div>
+    <button onclick="closeWarningModal()" style="background:linear-gradient(135deg,#e74c3c,#ff7f5c);color:white;border:none;border-radius:14px;padding:14px 40px;font-size:1rem;font-family:'Do Hyeon',sans-serif;cursor:pointer;">
+      알겠어요 🐚
+    </button>
+  </div>
+</div>
 <style>
 @keyframes eventGiftBounce {
   0% { transform: scale(0.5) translateY(20px); opacity: 0; }
@@ -2582,6 +2598,23 @@ async function syncFromServer() {
   if (typeof checkSummerEvent === 'function') {
     setTimeout(checkSummerEvent, 800);  // sync 안정화 후 살짝 늦게 실행
   }
+
+  // ★ 선생님 경고 메시지 체크 (있으면 1회 표시)
+  if (currentUser) {
+    setTimeout(async () => {
+      try {
+        const wr = await gasRequest({ action: 'consumeWarning', email: currentUser.email });
+        if (wr && wr.hasWarning && wr.warning) {
+          document.getElementById('teacherWarningText').textContent = wr.warning;
+          document.getElementById('teacherWarningModal').style.display = 'flex';
+        }
+      } catch(e) { console.log('[consumeWarning]', e); }
+    }, 1200);  // 이벤트 팝업 후 떠야 우선순위 확보
+  }
+}
+
+function closeWarningModal() {
+  document.getElementById('teacherWarningModal').style.display = 'none';
 }
 window.onload = async () => {
   initBubbles();
