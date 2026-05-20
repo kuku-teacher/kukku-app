@@ -1317,6 +1317,20 @@ function logoutUser() {
     </button>
   </div>
 </div>
+
+<!-- 📢 전체 공지 모달 (선생님이 [공지] 시트에 작성) -->
+<div id="noticeModal" style="position:fixed;inset:0;z-index:10001;background:rgba(0,0,0,0.6);display:none;align-items:center;justify-content:center;font-family:'Gowun Dodum',sans-serif;padding:20px;">
+  <div style="background:linear-gradient(160deg,#ffffff,#f0fbff);border-radius:24px;padding:30px 26px;max-width:400px;width:100%;box-shadow:0 20px 60px rgba(61,214,181,0.3);text-align:center;border:3px solid #c5ece3;">
+    <div style="font-size:2.8rem;margin-bottom:8px;">📢</div>
+    <div id="noticeTitle" style="font-size:1.3rem;font-weight:bold;color:#1a7a8c;margin-bottom:14px;">쿠쿠 공지사항</div>
+    <div id="noticeBody" style="font-size:0.97rem;color:#1a3a4a;line-height:1.75;text-align:left;background:white;padding:18px;border-radius:14px;margin-bottom:18px;white-space:pre-wrap;box-shadow:0 2px 10px rgba(61,214,181,0.1);"></div>
+    <div style="font-size:0.8rem;color:#8ab0b8;margin-bottom:14px;">🐚 쿠쿠와 루루가 전하는 소식이야</div>
+    <button id="noticeCloseBtn" onclick="closeNoticeModal()" disabled
+      style="background:#cfd8dc;color:white;border:none;border-radius:14px;padding:14px 40px;font-size:1rem;font-family:'Do Hyeon',sans-serif;cursor:not-allowed;transition:background 0.3s;">
+      <span id="noticeCloseText">잠깐만... 🐚</span>
+    </button>
+  </div>
+</div>
 <style>
 @keyframes eventGiftBounce {
   0% { transform: scale(0.5) translateY(20px); opacity: 0; }
@@ -2490,9 +2504,26 @@ async function syncFromServer() {
       const fullEmotion = EMOTIONS.find(e => e.label === r.emotion) || { id:'', emoji:'', label: r.emotion, color:'' };
       // 기존 로컬 그림이 있으면 보존하면서 머지
       const existing = diary[r.date] || {};
-      // ★ 서버에 저장된 시각(r.createdAt 또는 11번째 컬럼)을 timestamp로 사용
-      // 이걸로 isBackdated 자동 판별 가능 (savedDate !== r.date이면 과거 기록)
-      const recordTimestamp = r.createdAt ? new Date(r.createdAt).getTime() : (existing.timestamp || Date.now());
+      // ★ 서버에 저장된 시각(r.createdAt) — 있으면 timestamp로 사용
+      const hasCreatedAt = !!r.createdAt;
+      const recordTimestamp = hasCreatedAt
+        ? new Date(r.createdAt).getTime()
+        : (existing.timestamp || null);
+
+      // ★ isBackdated 판정 — 우선순위:
+      //   1) 로컬에 이미 플래그가 있으면 그대로 신뢰
+      //   2) 서버 createdAt이 있으면, 저장일 ≠ 기록일일 때만 과거기록
+      //   3) createdAt도 로컬 플래그도 없으면 → 정상 기록으로 간주 (false)
+      //      (createdAt 없는 건 과거입력 기능 도입 전의 옛 기록 → 모두 정상)
+      let computedBackdated;
+      if (existing.isBackdated !== undefined) {
+        computedBackdated = existing.isBackdated;
+      } else if (hasCreatedAt) {
+        computedBackdated = (getKoreaDate(new Date(r.createdAt)) !== r.date);
+      } else {
+        computedBackdated = false;  // ★ 핵심 수정: 옛 기록은 정상 처리
+      }
+
       diary[r.date] = {
         emotion:   { id: fullEmotion.id, emoji: fullEmotion.emoji, label: fullEmotion.label, color: fullEmotion.color },
         colors:    [r.colorHex],
@@ -2501,11 +2532,10 @@ async function syncFromServer() {
         colorName: r.colorName,
         question:  r.question,
         answer:    r.diary,
-        timestamp: recordTimestamp,
-        // ★ isBackdated 보존: 기존 로컬에 있으면 우선 사용, 없으면 timestamp로 추론
-        isBackdated: existing.isBackdated !== undefined
-          ? existing.isBackdated
-          : (getKoreaDate(new Date(recordTimestamp)) !== r.date)
+        // timestamp: createdAt 있으면 그 값, 없으면 기록 날짜 정오로 설정
+        // (Date.now()를 쓰면 isBackdatedEntry가 오판하므로 절대 쓰지 않음)
+        timestamp: recordTimestamp || (new Date(r.date + 'T12:00:00').getTime()),
+        isBackdated: computedBackdated
       };
       // ★ 그림 처리: 서버에 drawingUrl 있으면 그걸 사용, 없으면 로컬 base64 유지
       if (r.drawingUrl) {
@@ -2519,68 +2549,47 @@ async function syncFromServer() {
     localStorage.setItem('kukku_diary', JSON.stringify(diary));
   }
 
-  // ② 스탬프 + 보유 스티커 동기화
-  // 새 기기/브라우저에서는 localStorage가 비어있음 → 서버 값으로 복원
-  // 같은 기기 재방문이면 서버 ↔ 로컬을 비교해서 더 최신 상태로 맞춤
+  // ② 스탬프 + 보유 스티커 동기화 — 서버를 항상 진실로 사용
+  // 바다 꾸미기와 동일한 원칙: 로그인 시 무조건 서버 값으로 맞춤.
+  // 시계/기기 비교를 없애서 "스탬프가 기기마다 다름" 문제를 근본 해결.
   const stampResult = await gasRequest({ action: 'getStamps', email: currentUser.email });
   if (stampResult.success) {
-    const localStampsRaw = localStorage.getItem('kukku_stamps');
-    const localOwnedRaw  = localStorage.getItem('kukku_owned');
-    const isFreshDevice = (localStampsRaw === null && localOwnedRaw === null);
+    // 서버 값으로 통일 (서버 = 유일한 진실)
+    stamps     = Number(stampResult.totalStamps) || 0;
+    ownedItems = Array.isArray(stampResult.ownedItems) ? stampResult.ownedItems.slice() : [];
 
-    if (isFreshDevice) {
-      // 새 기기 - 서버에서 받은 값으로 초기화
-      stamps      = Number(stampResult.totalStamps) || 0;
-      ownedItems  = Array.isArray(stampResult.ownedItems) ? stampResult.ownedItems.slice() : [];
-      localStorage.setItem('kukku_stamps', stamps);
-      localStorage.setItem('kukku_owned', JSON.stringify(ownedItems));
-    } else {
-      // 같은 기기 재방문 - 서버에 있지만 로컬에 없는 보유 스티커는 추가 (다른 기기에서 산 것)
-      const serverOwned = Array.isArray(stampResult.ownedItems) ? stampResult.ownedItems : [];
-      let merged = false;
-      serverOwned.forEach(id => {
-        if (!ownedItems.includes(id)) {
-          ownedItems.push(id);
-          merged = true;
-        }
-      });
-      if (merged) localStorage.setItem('kukku_owned', JSON.stringify(ownedItems));
-    }
+    // 보유 스티커 중복 제거 (혹시 모를 중복 방어)
+    ownedItems = [...new Set(ownedItems)];
+
+    localStorage.setItem('kukku_stamps', stamps);
+    localStorage.setItem('kukku_owned', JSON.stringify(ownedItems));
+    console.log('🐚 스탬프/보유 스티커: 서버 데이터로 동기화 (스탬프 ' + stamps + '개)');
+  } else {
+    // 서버 응답 실패 시에만 로컬 데이터 유지 (오프라인 안전장치)
+    console.log('🐚 스탬프: 서버 응답 없음, 로컬 데이터 유지');
   }
 
-  // ③ 바다 꾸미기 배치 양방향 동기화
-  // 로컬 변경 시각(oceanUpdatedAt)과 서버 변경 시각(oceanResult.updatedAt)을 비교해서
-  // 더 최신인 쪽을 양쪽에 반영. 학교/집에서 번갈아 사용해도 데이터 손실 없음.
+  // ③ 바다 꾸미기 배치 동기화 — 서버를 항상 진실로 사용
+  // 시계 비교 방식은 기기 간 시계 차이로 데이터가 사라지거나 중복되는 문제가 있어서
+  // "로그인 시 무조건 서버 데이터로 로컬을 맞춘다"는 단순하고 안정적인 방식으로 변경
   try {
     const oceanResult = await gasRequest({ action: 'loadOceanLayout', email: currentUser.email });
-    if (oceanResult && oceanResult.success) {
-      const serverLayout = Array.isArray(oceanResult.layout) ? oceanResult.layout : [];
-      const serverUpdatedAt = oceanResult.updatedAt ? new Date(oceanResult.updatedAt).getTime() : 0;
-      const localUpdatedAt = Number(localStorage.getItem('kukku_ocean_updated_at') || 0);
-
-      const isFreshDevice = (localStorage.getItem('kukku_ocean') === null);
-      const serverIsNewer = serverUpdatedAt > localUpdatedAt;
-      const serverHasData = serverLayout.length > 0;
-
-      if (isFreshDevice || (serverIsNewer && serverHasData)) {
-        // 서버 데이터로 로컬 덮어쓰기 (새 기기 또는 서버가 더 최신)
-        oceanLayout = serverLayout.map(l => ({
-          itemId:     l.stickerId,
-          leftPct:    Number(l.x) || 50,
-          topPct:     Number(l.y) || 50,
-          instanceId: 's_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7)
-        }));
-        localStorage.setItem('kukku_ocean', JSON.stringify(oceanLayout));
-        localStorage.setItem('kukku_ocean_updated_at', String(serverUpdatedAt));
-        console.log('🌊 바다 배치: 서버 데이터로 복원 (' + serverLayout.length + '개)');
-      } else if (localUpdatedAt > serverUpdatedAt && oceanLayout.length > 0) {
-        // 로컬이 더 최신 → 다음 saveDiary 시 자동으로 서버에 올라감
-        console.log('🌊 바다 배치: 로컬이 더 최신, 다음 변경 시 서버 동기화');
-      }
-      // (그 외: 동일 시각이거나 양쪽 다 비어있음 → 아무것도 안 함)
+    if (oceanResult && oceanResult.success && Array.isArray(oceanResult.layout)) {
+      // 서버 데이터를 그대로 로컬에 반영 (서버 = 유일한 진실)
+      oceanLayout = oceanResult.layout.map(l => ({
+        itemId:     l.stickerId,
+        leftPct:    Number(l.x) || 50,
+        topPct:     Number(l.y) || 50,
+        instanceId: 's_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7)
+      }));
+      localStorage.setItem('kukku_ocean', JSON.stringify(oceanLayout));
+      console.log('🌊 바다 배치: 서버 데이터로 동기화 (' + oceanLayout.length + '개)');
+    } else {
+      // 서버 응답 실패 시에만 로컬 데이터 유지 (오프라인 안전장치)
+      console.log('🌊 바다 배치: 서버 응답 없음, 로컬 데이터 유지');
     }
   } catch(e) {
-    console.log('[loadOceanLayout] 오류:', e);
+    console.log('[loadOceanLayout] 오류 — 로컬 데이터 유지:', e);
   }
 
   updateStats();
@@ -2624,10 +2633,68 @@ async function syncFromServer() {
       } catch(e) { console.log('[consumeWarning]', e); }
     }, 1200);  // 이벤트 팝업 후 떠야 우선순위 확보
   }
+
+  // ★ 전체 공지 체크 (새 공지가 있으면 1회 표시)
+  if (currentUser) {
+    setTimeout(checkNotice, 1600);  // 경고 메시지 다음 순서로
+  }
 }
 
 function closeWarningModal() {
   document.getElementById('teacherWarningModal').style.display = 'none';
+}
+
+// 전체 공지 확인 — 마지막으로 본 공지 ID와 다르면 팝업 표시
+async function checkNotice() {
+  try {
+    const r = await gasRequest({ action: 'getNotice' });
+    if (!r || !r.success || !r.hasNotice) return;
+
+    // 이 학생이 마지막으로 확인한 공지 ID
+    const seenId = localStorage.getItem('kukku_notice_seen_id') || '';
+    if (seenId === String(r.noticeId)) return;  // 이미 본 공지면 표시 안 함
+
+    // 공지 내용 채우기
+    document.getElementById('noticeTitle').textContent = r.title || '쿠쿠 공지사항';
+    document.getElementById('noticeBody').textContent = r.body || '';
+    document.getElementById('noticeModal').style.display = 'flex';
+
+    // 닫기 버튼은 2초 후 활성화 (학생이 공지를 읽을 시간 확보)
+    const btn = document.getElementById('noticeCloseBtn');
+    const btnText = document.getElementById('noticeCloseText');
+    btn.disabled = true;
+    btn.style.background = '#cfd8dc';
+    btn.style.cursor = 'not-allowed';
+    let countdown = 2;
+    btnText.textContent = `잠깐만... (${countdown})`;
+    const timer = setInterval(() => {
+      countdown--;
+      if (countdown > 0) {
+        btnText.textContent = `잠깐만... (${countdown})`;
+      } else {
+        clearInterval(timer);
+        btn.disabled = false;
+        btn.style.background = 'linear-gradient(135deg,#3dd6b5,#7ec8e3)';
+        btn.style.cursor = 'pointer';
+        btnText.textContent = '확인했어요! 🐚';
+      }
+    }, 1000);
+
+    // 현재 공지 ID를 본 것으로 기록
+    document.getElementById('noticeModal').dataset.noticeId = String(r.noticeId);
+  } catch(e) {
+    console.log('[checkNotice]', e);
+  }
+}
+
+function closeNoticeModal() {
+  const modal = document.getElementById('noticeModal');
+  const noticeId = modal.dataset.noticeId;
+  if (noticeId) {
+    // 이 공지를 봤다고 저장 → 다음 로그인 때 같은 공지는 안 뜸
+    localStorage.setItem('kukku_notice_seen_id', noticeId);
+  }
+  modal.style.display = 'none';
 }
 window.onload = async () => {
   initBubbles();
@@ -2697,7 +2764,6 @@ window.onload = async () => {
 // 디바운스 타이머 (④ 동시성 안전)
 let _saveStampsTimer = null;
 let _saveOceanTimer = null;
-let _oceanDirty = false;  // 바다 배치가 마지막 sync 이후 변경됐는지
 function saveDiary() {
   localStorage.setItem('kukku_diary', JSON.stringify(diary));
   localStorage.setItem('kukku_stamps', stamps);
@@ -2708,11 +2774,6 @@ function saveDiary() {
   const prevOceanJson = localStorage.getItem('kukku_ocean');
   const oceanChanged = (prevOceanJson !== oceanJson);
   localStorage.setItem('kukku_ocean', oceanJson);
-  if (oceanChanged) {
-    // 로컬 변경 시각 갱신 → sync 시 어느 쪽이 최신인지 비교에 사용
-    localStorage.setItem('kukku_ocean_updated_at', String(Date.now()));
-    _oceanDirty = true;
-  }
 
   // 서버에도 스탬프/보유 스티커 저장 (디바운스: 빠른 연속 호출은 마지막만 전송)
   if (currentUser) {
@@ -2744,20 +2805,12 @@ function saveDiary() {
             size: 1
           };
         });
-        const updatedAt = Date.now();
         gasRequest({
           action: 'saveOceanLayout',
           email: currentUser.email,
-          layoutData: layoutData,
-          updatedAt: updatedAt  // ★ 서버에 클라이언트 변경 시각 전달
+          layoutData: layoutData
         }).then(r => {
-          if (r && r.success) {
-            _oceanDirty = false;
-            // 서버가 저장한 시각을 기준으로 로컬 시각도 정렬
-            if (r.updatedAt) localStorage.setItem('kukku_ocean_updated_at', String(new Date(r.updatedAt).getTime()));
-          } else if (r) {
-            console.log('[saveOceanLayout] 서버 저장 실패:', r.message);
-          }
+          if (r && !r.success) console.log('[saveOceanLayout] 서버 저장 실패:', r.message);
         }).catch(e => console.log('[saveOceanLayout] 네트워크 오류:', e));
       }, 700);
     }
@@ -2878,20 +2931,12 @@ function updateStats() {
 }
 
 // 일기 항목이 "과거 날짜에 입력된 것"인지 판단
-// (서버 동기화 후 isBackdated 플래그가 누락돼도 안전하게 판별)
+// 명시적 isBackdated 플래그를 최우선으로 신뢰.
+// 플래그가 없으면 정상 기록으로 간주(false) — timestamp 추론은 오판 위험이 있어
+// 더 이상 사용하지 않음. (동기화 머지 단계에서 이미 isBackdated를 채워줌)
 function isBackdatedEntry(entry, dateStr) {
   if (!entry) return false;
-  // 1차: 명시적 플래그가 있으면 그걸 신뢰
   if (entry.isBackdated === true) return true;
-  if (entry.isBackdated === false) return false;
-  // 2차: 플래그 없으면 timestamp로 추론
-  // entry.timestamp = 저장된 시각 (밀리초)
-  // dateStr = 기록의 날짜 (예: '2026-05-18')
-  // 두 날짜가 다르면 = 과거(또는 미래) 날짜로 기록한 것
-  if (entry.timestamp && dateStr) {
-    const savedDate = getKoreaDate(new Date(entry.timestamp));
-    return savedDate !== dateStr;
-  }
   return false;
 }
 
@@ -3214,7 +3259,9 @@ function saveRecord() {
   if (existingDrawing) diary[ds].drawing = existingDrawing;
 
   // ★ 스탬프는 "오늘 + 신규 기록"일 때만 +1 (과거 날짜·수정 모두 제외)
-  if (isToday && !isUpdate) {
+  // 일단 클라이언트에서 낙관적으로 +1 (UI 즉시 반영), 서버 응답으로 최종 보정
+  const expectStamp = (isToday && !isUpdate);
+  if (expectStamp) {
     stamps += 1;
   }
   saveDiary();
@@ -3237,9 +3284,26 @@ function saveRecord() {
     }).then(r => {
       if (r.success) {
         console.log('☁️ 서버 저장 완료!');
+        // ★ 스탬프 보정: 서버가 "스탬프 안 줬다"(stampAdded:false)는데
+        //   클라이언트가 미리 +1 했다면 되돌림 (멀티 기기 중복 적립 방지)
+        //   예: 다른 기기에서 오늘 이미 기록 → 서버는 업데이트 처리 → 스탬프 X
+        if (expectStamp && r.stampAdded === false) {
+          stamps = Math.max(0, stamps - 1);
+          saveDiary();
+          updateStats();
+          console.log('🔧 스탬프 보정: 서버가 오늘 이미 기록됨으로 판단 → -1 되돌림');
+        }
       } else {
         console.log('서버 저장 실패:', r.message);
+        // 서버 저장 자체가 실패하면 미리 더한 스탬프 되돌림 (저장 안 됐으니까)
+        if (expectStamp) {
+          stamps = Math.max(0, stamps - 1);
+          saveDiary();
+          updateStats();
+        }
       }
+    }).catch(e => {
+      console.log('서버 저장 네트워크 오류:', e);
     });
   }
 
