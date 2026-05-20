@@ -896,7 +896,8 @@ body {
 const GAS_URL = 'https://script.google.com/macros/s/AKfycbz8V0Cxf8S8uaxRXheEqAMBtIAhxMI-S1A2sfkHJED9pU4gNqAEmwex9e4wsI2t3aM/exec';
 let currentUser = JSON.parse(localStorage.getItem('kukku_user') || 'null');
 
-async function gasRequest(payload) {
+async function gasRequest(payload, _retryCount) {
+  _retryCount = _retryCount || 0;
   try {
     const json = JSON.stringify(payload);
     // ★ URL 길이 제한 회피: 큰 데이터(특히 그림 base64)는 POST로 전송
@@ -912,9 +913,25 @@ async function gasRequest(payload) {
           body: json
         })
       : await fetch(GAS_URL + '?data=' + encodeURIComponent(json));
-    return await res.json();
+    const result = await res.json();
+
+    // ★ 서버가 "저장 몰림(busy)"으로 응답하면 자동 재시도
+    // 160명이 동시에 저장할 때 잠깐 줄이 길어진 경우 → 1.5초 후 다시 시도
+    // 최대 2번까지 (총 3회 시도)
+    if (result && result.busy && _retryCount < 2) {
+      console.log(`[gasRequest] 서버 혼잡 — ${_retryCount + 1}번째 재시도...`);
+      await new Promise(r => setTimeout(r, 1500));
+      return gasRequest(payload, _retryCount + 1);
+    }
+
+    return result;
   } catch(e) {
     console.log('[gasRequest] 오류:', e);
+    // 네트워크 오류도 1번은 재시도 (일시적 끊김 대응)
+    if (_retryCount < 1) {
+      await new Promise(r => setTimeout(r, 1000));
+      return gasRequest(payload, _retryCount + 1);
+    }
     return { success: false, message: '서버 연결 실패 😢' };
   }
 }
