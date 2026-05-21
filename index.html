@@ -896,6 +896,32 @@ body {
 const GAS_URL = 'https://script.google.com/macros/s/AKfycbz8V0Cxf8S8uaxRXheEqAMBtIAhxMI-S1A2sfkHJED9pU4gNqAEmwex9e4wsI2t3aM/exec';
 let currentUser = JSON.parse(localStorage.getItem('kukku_user') || 'null');
 
+// ★ 공용 PC 데이터 격리 (중요!)
+// 학교 PC는 여러 학생이 번갈아 사용함. 이전 학생의 일기/스탬프/바다 데이터가
+// localStorage에 남아있으면, 다음 학생 화면에 섞여서 보이거나 심하면
+// 다른 학생 이름으로 서버에 저장되는 사고가 생김.
+// → 로그인하는 이메일이 직전 사용자와 다르면, 로컬 데이터를 싹 비우고 시작.
+function isolateLocalDataForUser(email) {
+  const prevEmail = localStorage.getItem('kukku_last_email') || '';
+  if (prevEmail && prevEmail !== email) {
+    // 다른 학생이 로그인함 → 이전 학생의 흔적을 모두 제거
+    console.log('🧹 다른 사용자 감지 — 이전 데이터 격리 (이전: ' + prevEmail + ' → 현재: ' + email + ')');
+    localStorage.removeItem('kukku_diary');
+    localStorage.removeItem('kukku_stamps');
+    localStorage.removeItem('kukku_owned');
+    localStorage.removeItem('kukku_ocean');
+    localStorage.removeItem('kukku_ocean_updated_at');
+    localStorage.removeItem('kukku_notice_seen_id');
+    // 메모리 변수도 초기화
+    diary = {};
+    stamps = 0;
+    ownedItems = [];
+    oceanLayout = [];
+  }
+  // 현재 사용자 기록
+  localStorage.setItem('kukku_last_email', email);
+}
+
 async function gasRequest(payload, _retryCount) {
   _retryCount = _retryCount || 0;
   try {
@@ -1126,6 +1152,8 @@ async function submitPinSetup() {
   if (!result.success) { alert(result.message); return; }
 
   // PIN 등록 완료 → 로그인 처리
+  // ★ 공용 PC 대비: 이전 사용자와 다르면 로컬 데이터 격리
+  isolateLocalDataForUser(email);
   currentUser = { email, nickname };
   localStorage.setItem('kukku_user', JSON.stringify(currentUser));
   document.getElementById('pinSetupOverlay').style.display = 'none';
@@ -1154,6 +1182,8 @@ async function submitPinLogin() {
   document.getElementById('pinLoginBtn').textContent = '들어가기 🌊';
 
   if (result.success) {
+    // ★ 공용 PC 대비: 이전 사용자와 다르면 로컬 데이터 격리
+    isolateLocalDataForUser(email);
     currentUser = { email, nickname: result.nickname };
     localStorage.setItem('kukku_user', JSON.stringify(currentUser));
     document.getElementById('pinLoginOverlay').style.display = 'none';
@@ -2516,29 +2546,42 @@ async function syncFromServer() {
     email: currentUser.email
   });
   if (result.success && Array.isArray(result.records)) {
-    // 서버 기록을 로컬에 머지 (서버 우선: 같은 날짜는 서버 데이터로 덮어씀)
+    // ★ 공용 PC 안전장치 (중요!):
+    // 서버는 이 학생의 "전체 기록"을 주므로, 받기 전에 diary를 비우고 새로 채운다.
+    // 이렇게 하면 이전에 같은 PC를 쓴 다른 학생의 일기가 절대 섞이지 않음.
+    // 단, 로컬에만 있는 그림(drawing)은 날짜별로 따로 보존했다가 다시 붙임.
+    const preservedDrawings = {};
+    Object.keys(diary).forEach(dateKey => {
+      const entry = diary[dateKey];
+      if (entry && (entry.drawing || entry.drawingUrl)) {
+        preservedDrawings[dateKey] = {
+          drawing: entry.drawing,
+          drawingUrl: entry.drawingUrl
+        };
+      }
+    });
+    // diary 완전 초기화 → 이제 서버 데이터로만 채움
+    diary = {};
+
+    // 서버 기록으로 diary 재구성
     result.records.forEach(r => {
       const fullEmotion = EMOTIONS.find(e => e.label === r.emotion) || { id:'', emoji:'', label: r.emotion, color:'' };
-      // 기존 로컬 그림이 있으면 보존하면서 머지
-      const existing = diary[r.date] || {};
+      // 보존해둔 그림이 있으면 가져옴 (로컬에만 있던 그림 살리기)
+      const existing = preservedDrawings[r.date] || {};
       // ★ 서버에 저장된 시각(r.createdAt) — 있으면 timestamp로 사용
       const hasCreatedAt = !!r.createdAt;
       const recordTimestamp = hasCreatedAt
         ? new Date(r.createdAt).getTime()
-        : (existing.timestamp || null);
+        : null;
 
-      // ★ isBackdated 판정 — 우선순위:
-      //   1) 로컬에 이미 플래그가 있으면 그대로 신뢰
-      //   2) 서버 createdAt이 있으면, 저장일 ≠ 기록일일 때만 과거기록
-      //   3) createdAt도 로컬 플래그도 없으면 → 정상 기록으로 간주 (false)
-      //      (createdAt 없는 건 과거입력 기능 도입 전의 옛 기록 → 모두 정상)
+      // ★ isBackdated 판정:
+      //   1) 서버 createdAt이 있으면, 저장일 ≠ 기록일일 때만 과거기록
+      //   2) createdAt이 없으면 → 정상 기록으로 간주 (옛 기록)
       let computedBackdated;
-      if (existing.isBackdated !== undefined) {
-        computedBackdated = existing.isBackdated;
-      } else if (hasCreatedAt) {
+      if (hasCreatedAt) {
         computedBackdated = (getKoreaDate(new Date(r.createdAt)) !== r.date);
       } else {
-        computedBackdated = false;  // ★ 핵심 수정: 옛 기록은 정상 처리
+        computedBackdated = false;
       }
 
       diary[r.date] = {
