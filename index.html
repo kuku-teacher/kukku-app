@@ -2551,13 +2551,21 @@ async function syncFromServer() {
     // 이렇게 하면 이전에 같은 PC를 쓴 다른 학생의 일기가 절대 섞이지 않음.
     // 단, 로컬에만 있는 그림(drawing)은 날짜별로 따로 보존했다가 다시 붙임.
     const preservedDrawings = {};
+    // ★ 추가 안전장치: 서버에 아직 저장 안 된 로컬 기록(syncedToServer:false)은 보존.
+    // 저장 실패한 일기가 동기화 때 사라지는 사고를 방지함.
+    const unsyncedRecords = {};
     Object.keys(diary).forEach(dateKey => {
       const entry = diary[dateKey];
-      if (entry && (entry.drawing || entry.drawingUrl)) {
+      if (!entry) return;
+      if (entry.drawing || entry.drawingUrl) {
         preservedDrawings[dateKey] = {
           drawing: entry.drawing,
           drawingUrl: entry.drawingUrl
         };
+      }
+      // 서버 미저장 기록 보관 (emotion이 있는 = 실제 작성된 기록만)
+      if (entry.syncedToServer === false && entry.emotion) {
+        unsyncedRecords[dateKey] = entry;
       }
     });
     // diary 완전 초기화 → 이제 서버 데이터로만 채움
@@ -2574,14 +2582,24 @@ async function syncFromServer() {
         ? new Date(r.createdAt).getTime()
         : null;
 
-      // ★ isBackdated 판정:
-      //   1) 서버 createdAt이 있으면, 저장일 ≠ 기록일일 때만 과거기록
-      //   2) createdAt이 없으면 → 정상 기록으로 간주 (옛 기록)
-      let computedBackdated;
+      // ★ isBackdated 판정 (과거 날짜로 일부러 입력했는지):
+      //   서버 createdAt(저장시각)과 r.date(기록날짜)를 비교하되,
+      //   자정 근처 기록은 저장이 다음 날로 넘어갈 수 있으므로
+      //   "기록날짜와 하루 이상 차이날 때만" 과거기록으로 판정 (오판 방지).
+      let computedBackdated = false;
       if (hasCreatedAt) {
-        computedBackdated = (getKoreaDate(new Date(r.createdAt)) !== r.date);
-      } else {
-        computedBackdated = false;
+        // 저장시각의 날짜와 기록날짜를 '일(day)' 단위로 비교
+        const savedDateStr = getKoreaDate(new Date(r.createdAt));
+        // 두 날짜를 밀리초로 환산해 차이 계산
+        const savedMs = new Date(savedDateStr + 'T00:00:00').getTime();
+        const recordMs = new Date(r.date + 'T00:00:00').getTime();
+        const dayDiff = Math.round((savedMs - recordMs) / 86400000);
+        // 기록날짜보다 2일 이상 늦게 저장됐을 때만 "과거 날짜 입력"으로 간주
+        // (1일 차이는 자정 근처 저장 지연일 수 있어 정상으로 봄)
+        // 미래 날짜 입력(dayDiff가 음수로 큼)도 과거기록 취급해서 streak 제외
+        if (dayDiff >= 2 || dayDiff <= -2) {
+          computedBackdated = true;
+        }
       }
 
       diary[r.date] = {
@@ -2607,6 +2625,43 @@ async function syncFromServer() {
       }
     });
     localStorage.setItem('kukku_diary', JSON.stringify(diary));
+
+    // ★ 서버 미저장 기록 복구:
+    // 서버에 없지만 로컬에 "저장 실패(syncedToServer:false)" 상태로 남아있던 기록을
+    // 다시 diary에 넣고, 서버 재업로드를 시도함. (저장 실패한 일기 살리기)
+    const unsyncedDates = Object.keys(unsyncedRecords);
+    if (unsyncedDates.length > 0) {
+      console.log('🔄 서버 미저장 기록 ' + unsyncedDates.length + '건 복구 시도');
+      unsyncedDates.forEach(dateKey => {
+        // 서버에 이미 같은 날짜가 있으면 서버 것 우선 (이미 저장됐던 것)
+        if (!diary[dateKey]) {
+          diary[dateKey] = unsyncedRecords[dateKey];
+        }
+        // 서버에 재업로드 시도
+        const entry = unsyncedRecords[dateKey];
+        gasRequest({
+          action: 'saveRecord',
+          email: currentUser.email,
+          nickname: currentUser.nickname,
+          emotion: (entry.emotion && entry.emotion.label) || '',
+          colorHex: entry.mixColor || '#ffffff',
+          colorName: entry.colorName || '',
+          temperature: entry.temp || 36,
+          diaryText: entry.answer || '',
+          question: entry.question || '',
+          drawingUrl: '',
+          isUpdate: false,
+          recordDate: dateKey
+        }).then(r => {
+          if (r && r.success) {
+            if (diary[dateKey]) { diary[dateKey].syncedToServer = true; }
+            localStorage.setItem('kukku_diary', JSON.stringify(diary));
+            console.log('✅ 미저장 기록 복구 완료: ' + dateKey);
+          }
+        }).catch(e => console.log('[미저장 복구 실패] ' + dateKey, e));
+      });
+      localStorage.setItem('kukku_diary', JSON.stringify(diary));
+    }
   }
 
   // ② 스탬프 + 보유 스티커 동기화 — 서버를 항상 진실로 사용
@@ -2970,24 +3025,44 @@ function updateStats() {
   document.getElementById('totalRecords').textContent = total;
   document.getElementById('homeStamps').textContent = stamps;
   document.getElementById('topStampCount').textContent = stamps;
-  // streak — 과거/미래 날짜로 기록한 항목 제외 (이중 검증)
-  // 검증 1: isBackdated 플래그 (saveRecord 시 표시됨)
-  // 검증 2: timestamp의 날짜와 기록 날짜(ds)가 같은지
-  //   → 동기화 후 isBackdated 누락된 경우에도 안전하게 판별 가능
-  let streak = 0;
-  const today = new Date();
-  for (let i = 0; i < 365; i++) {
-    const d = new Date(today); d.setDate(d.getDate() - i);
-    const ds = getKoreaDate(d);
-    const entry = diary[ds];
-    if (entry && !isBackdatedEntry(entry, ds)) {
-      streak++;
-    } else if (i > 0) {
-      break;
-    }
-  }
+
+  // 연속 기록일 — 공통 함수 calcStreak() 사용 (산호초 상점과 숫자 일치 보장)
+  const streak = calcStreak();
   document.getElementById('streakDays').textContent = streak;
   updateLulu();
+}
+
+// ── 연속 기록일(streak) 계산 — 공통 함수 ──
+// 규칙:
+//  - 오늘 기록을 아직 안 했어도, 어제까지의 연속은 유지됨 (오늘은 진행 중)
+//  - 오늘 기록을 했으면 연속에 포함
+//  - 과거 날짜로 입력한 기록(isBackdated)은 제외
+//  - 중간에 하루라도 빠지면 거기서 연속 끊김
+function calcStreak() {
+  let streak = 0;
+  const today = new Date();
+  const todayDs = getKoreaDate(today);
+
+  // 오늘 정상 기록을 했는지 확인
+  const todayEntry = diary[todayDs];
+  const recordedToday = !!(todayEntry && todayEntry.emotion && !isBackdatedEntry(todayEntry, todayDs));
+
+  // 오늘 기록했으면 오늘(i=0)부터, 아니면 어제(i=1)부터 세기 시작
+  // → 오늘 아직 안 썼다고 그동안의 연속이 0이 되지 않음
+  const startOffset = recordedToday ? 0 : 1;
+
+  for (let i = startOffset; i < 365 + startOffset; i++) {
+    const d = new Date(today);
+    d.setDate(d.getDate() - i);
+    const ds = getKoreaDate(d);
+    const entry = diary[ds];
+    if (entry && entry.emotion && !isBackdatedEntry(entry, ds)) {
+      streak++;
+    } else {
+      break;  // 기록 없는 날 → 연속 끊김
+    }
+  }
+  return streak;
 }
 
 // 일기 항목이 "과거 날짜에 입력된 것"인지 판단
@@ -3326,9 +3401,9 @@ function saveRecord() {
   }
   saveDiary();
 
-  // ── GAS 서버에 저장 ──
+  // ── GAS 서버에 저장 (실패 시 자동 재시도) ──
   if (currentUser) {
-    gasRequest({
+    const recordPayload = {
       action: 'saveRecord',
       email: currentUser.email,
       nickname: currentUser.nickname,
@@ -3339,32 +3414,55 @@ function saveRecord() {
       diaryText: answer,
       question: currentQuestion?.q || '',
       drawingUrl: '',
-      isUpdate: isUpdate,    // ★ 서버에 수정 여부 알림 (스탬프 중복 방지용)
-      recordDate: ds         // ★ 어떤 날짜의 기록인지
-    }).then(r => {
-      if (r.success) {
-        console.log('☁️ 서버 저장 완료!');
-        // ★ 스탬프 보정: 서버가 "스탬프 안 줬다"(stampAdded:false)는데
-        //   클라이언트가 미리 +1 했다면 되돌림 (멀티 기기 중복 적립 방지)
-        //   예: 다른 기기에서 오늘 이미 기록 → 서버는 업데이트 처리 → 스탬프 X
-        if (expectStamp && r.stampAdded === false) {
-          stamps = Math.max(0, stamps - 1);
-          saveDiary();
-          updateStats();
-          console.log('🔧 스탬프 보정: 서버가 오늘 이미 기록됨으로 판단 → -1 되돌림');
+      isUpdate: isUpdate,
+      recordDate: ds
+    };
+
+    // 저장 시도 함수 — 실패하면 최대 3번까지 다시 시도
+    const trySaveRecord = async (attempt) => {
+      attempt = attempt || 1;
+      try {
+        const r = await gasRequest(recordPayload);
+        if (r && r.success) {
+          console.log('☁️ 서버 저장 완료!');
+          // 스탬프 보정: 서버가 "스탬프 안 줬다"는데 미리 +1 했으면 되돌림
+          if (expectStamp && r.stampAdded === false) {
+            stamps = Math.max(0, stamps - 1);
+            saveDiary();
+            updateStats();
+            console.log('🔧 스탬프 보정 (-1)');
+          }
+          // ★ 저장 성공 표시 — 이 기록이 서버에 안전하게 들어갔음
+          if (diary[ds]) { diary[ds].syncedToServer = true; saveDiary(); }
+          return true;
         }
-      } else {
-        console.log('서버 저장 실패:', r.message);
-        // 서버 저장 자체가 실패하면 미리 더한 스탬프 되돌림 (저장 안 됐으니까)
+        // success가 false → 재시도
+        throw new Error(r && r.message ? r.message : '서버 저장 실패');
+      } catch(e) {
+        console.log(`[saveRecord] ${attempt}번째 저장 실패:`, e);
+        if (attempt < 3) {
+          // 1.5초 후 다시 시도 (서버 혼잡·일시적 오류 대응)
+          await new Promise(res => setTimeout(res, 1500));
+          return trySaveRecord(attempt + 1);
+        }
+        // 3번 다 실패 → 학생에게 명확히 알림
         if (expectStamp) {
           stamps = Math.max(0, stamps - 1);
           saveDiary();
           updateStats();
         }
+        if (diary[ds]) { diary[ds].syncedToServer = false; saveDiary(); }
+        alert(
+          '⚠️ 일기가 서버에 저장되지 않았어 😢\n\n'
+          + '인터넷 연결을 확인하고,\n'
+          + '잠시 후 일기를 다시 한 번 저장해줘!\n\n'
+          + '(지금 쓴 내용은 이 기기에는 남아있어)'
+        );
+        return false;
       }
-    }).catch(e => {
-      console.log('서버 저장 네트워크 오류:', e);
-    });
+    };
+
+    trySaveRecord(1);
   }
 
   // summary
@@ -4629,22 +4727,11 @@ async function renderPicturebook() {
 // ============================================================
 // SHOP
 // ============================================================
-// 연속 기록일 계산 (특수 스티커 잠금에 사용) — 과거 날짜 기록은 제외
-// isBackdatedEntry로 이중 검증 (플래그 + timestamp)
+// 연속 기록일 계산 (특수 스티커 잠금에 사용)
+// updateStats와 동일한 규칙을 쓰는 공통 함수 calcStreak()를 사용해
+// 두 곳의 연속일 숫자가 항상 일치하도록 함
 function getStreakDays() {
-  let streak = 0;
-  const today = new Date();
-  for (let i = 0; i < 365; i++) {
-    const d = new Date(today); d.setDate(d.getDate() - i);
-    const ds = getKoreaDate(d);
-    const entry = diary[ds];
-    if (entry && !isBackdatedEntry(entry, ds)) {
-      streak++;
-    } else if (i > 0) {
-      break;
-    }
-  }
-  return streak;
+  return calcStreak();
 }
 
 function renderShop() {
