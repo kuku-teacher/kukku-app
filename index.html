@@ -911,12 +911,14 @@ function isolateLocalDataForUser(email) {
     localStorage.removeItem('kukku_owned');
     localStorage.removeItem('kukku_ocean');
     localStorage.removeItem('kukku_ocean_updated_at');
+    localStorage.removeItem('kukku_storage');  // ★ 스티커 보관함도 격리
     localStorage.removeItem('kukku_notice_seen_id');
     // 메모리 변수도 초기화
     diary = {};
     stamps = 0;
     ownedItems = [];
     oceanLayout = [];
+    stickerStorage = [];  // ★ 보관함 메모리도 초기화
   }
   // 현재 사용자 기록
   localStorage.setItem('kukku_last_email', email);
@@ -1938,8 +1940,16 @@ function logoutUser() {
       </div>
 
       <div class="card">
-        <div class="card-title">🌊 나의 바다 꾸미기</div>
-        <div class="card-sub">보유한 친구들을 클릭하면 바다에 등장해요! 드래그로 위치를 옮기고, 더블클릭하면 떠나보낼 수 있어요</div>
+        <div class="card-title" style="display:flex;align-items:center;justify-content:space-between;">
+          <span>🌊 나의 바다 꾸미기</span>
+          <button id="storageOpenBtn" onclick="openStorage()" title="스티커 보관함"
+            style="position:relative;background:linear-gradient(135deg,#ffd6a5,#ffadad);border:none;border-radius:14px;padding:8px 14px;font-size:1.3rem;cursor:pointer;box-shadow:0 3px 10px rgba(255,140,80,0.25);transition:transform 0.2s;"
+            onmouseover="this.style.transform='scale(1.08)'" onmouseout="this.style.transform=''">
+            🎁
+            <span id="storageBadge" style="display:none;position:absolute;top:-6px;right:-6px;background:#e74c3c;color:white;border-radius:50%;min-width:22px;height:22px;font-size:0.78rem;font-weight:bold;display:none;align-items:center;justify-content:center;padding:0 5px;border:2px solid white;font-family:var(--font-title);"></span>
+          </button>
+        </div>
+        <div class="card-sub">보유한 친구들을 클릭하면 바다에 등장해요! 드래그로 위치를 옮기고, 더블클릭하면 🎁 보관함으로 보낼 수 있어요</div>
         <div id="myOcean" style="position:relative;background:linear-gradient(180deg,#e0f7f4 0%,#b8e8f8 40%,#7ec8e3 100%);border-radius:20px;min-height:280px;overflow:hidden;border:2px solid rgba(61,214,181,0.25);">
           <div style="position:absolute;bottom:0;left:0;right:0;height:60px;background:linear-gradient(transparent,rgba(61,214,181,0.2));border-radius:0 0 18px 18px;"></div>
           <div id="oceanStickers" style="position:absolute;inset:0;"></div>
@@ -1949,6 +1959,24 @@ function logoutUser() {
     </div>
 
   </main>
+</div>
+
+<!-- 🎁 스티커 보관함 모달 -->
+<div id="storageModal" style="position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,0.55);display:none;align-items:center;justify-content:center;font-family:'Gowun Dodum',sans-serif;padding:20px;">
+  <div style="background:linear-gradient(160deg,#fff8f0,#ffe8e0);border-radius:24px;padding:24px;max-width:480px;width:100%;max-height:80vh;overflow-y:auto;box-shadow:0 20px 60px rgba(255,140,80,0.3);border:3px solid #ffd6a5;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+      <div style="font-size:1.3rem;font-weight:bold;color:#d35400;font-family:var(--font-title);">🎁 스티커 보관함</div>
+      <button onclick="closeStorage()" style="background:transparent;border:none;font-size:1.4rem;cursor:pointer;color:#888;">✕</button>
+    </div>
+    <div style="font-size:0.85rem;color:#a35a2a;margin-bottom:16px;line-height:1.5;">
+      보관된 스티커를 <strong>더블클릭</strong>하면 바다로 꺼낼 수 있어요 🌊
+    </div>
+    <div id="storageGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(78px,1fr));gap:12px;padding:8px 0;"></div>
+    <div id="storageEmpty" style="text-align:center;padding:40px 20px;color:#aaa;font-size:0.95rem;display:none;">
+      보관함이 비어있어요 🐚<br>
+      <span style="font-size:0.82rem;">바다 스티커를 더블클릭하면 여기로 옮길 수 있어요</span>
+    </div>
+  </div>
 </div>
 
 <!-- 하단 페이지 네비게이션 -->
@@ -2474,6 +2502,13 @@ let stamps = parseInt(localStorage.getItem('kukku_stamps') || '0');
 let ownedItems = JSON.parse(localStorage.getItem('kukku_owned') || '[]');
 // 바다 꾸미기 배치 정보 [{ itemId, leftPct, topPct, instanceId }]
 let oceanLayout = JSON.parse(localStorage.getItem('kukku_ocean') || '[]');
+
+// ★ 스티커 보관함 — 바다에서 잠시 보관한 스티커들 (영구 데이터)
+// 학생이 바다를 다양하게 꾸미고 싶을 때 잠시 빼두는 공간.
+// 보유 스티커(ownedItems)와 별개 — 보유는 한 적 있다는 기록이고,
+// 보관함은 "지금 바다에 안 두고 잠시 넣어둔 인스턴스"의 모음.
+// 형식: [{ itemId, instanceId }, ...]
+let stickerStorage = JSON.parse(localStorage.getItem('kukku_storage') || '[]');
 let currentStep = 1;
 let selectedEmotion = null;
 let selectedColors = [];
@@ -2769,6 +2804,7 @@ async function syncFromServer() {
   }
 
   restoreOceanLayout(); // 바다 배치 다시 그리기
+  updateStorageBadge(); // ★ 보관함 뱃지 초기화 (개수만큼 표시)
 
   // ★ 이벤트 체크 (오늘이 이벤트 날이면 자동 스티커 지급 + 팝업)
   if (typeof checkSummerEvent === 'function') {
@@ -2922,6 +2958,10 @@ function saveDiary() {
   localStorage.setItem('kukku_diary', JSON.stringify(diary));
   localStorage.setItem('kukku_stamps', stamps);
   localStorage.setItem('kukku_owned', JSON.stringify(ownedItems));
+  // ★ 스티커 보관함 저장 (로컬만 — 서버 저장은 추후 안정성 보고 결정)
+  localStorage.setItem('kukku_storage', JSON.stringify(stickerStorage));
+  // 보관함 뱃지 자동 업데이트
+  if (typeof updateStorageBadge === 'function') updateStorageBadge();
 
   // 바다 배치가 변경됐는지 감지 (이전 저장본과 비교)
   const oceanJson = JSON.stringify(oceanLayout);
@@ -5076,11 +5116,29 @@ function addStickerToOcean(item, savedLayout, withAnim) {
 }
 
 function removeStickerFromOcean(instanceId, stickerEl) {
+  // 어떤 스티커인지 찾기 (이름 표시용)
+  const target = oceanLayout.find(l => l.instanceId === instanceId);
+  if (!target) return;
+  const item = SHOP_ITEMS.find(s => s.id === target.itemId);
+  const name = item ? item.name : '이 친구';
+
+  // ★ 확인 팝업 — 실수로 보관함에 넣는 사고 방지
+  if (!confirm(`🎁 ${name}을(를) 보관함에 넣을까?\n\n(보관함 🎁에서 다시 꺼낼 수 있어!)`)) {
+    return;
+  }
+
+  // 바다에서 빼서 보관함으로 이동 (영구 삭제 아님!)
   oceanLayout = oceanLayout.filter(l => l.instanceId !== instanceId);
+  stickerStorage.push({
+    itemId: target.itemId,
+    instanceId: target.instanceId
+  });
   saveDiary();
-  // 사라지는 애니메이션
-  stickerEl.style.transition = 'transform 0.3s ease, opacity 0.3s ease';
-  stickerEl.style.transform = 'scale(0)';
+  updateStorageBadge();
+
+  // 사라지는 애니메이션 (보관함으로 빨려 들어가는 느낌)
+  stickerEl.style.transition = 'transform 0.35s ease, opacity 0.35s ease';
+  stickerEl.style.transform = 'scale(0.3) translateY(-30px)';
   stickerEl.style.opacity = '0';
   setTimeout(() => {
     stickerEl.remove();
@@ -5088,7 +5146,101 @@ function removeStickerFromOcean(instanceId, stickerEl) {
       const hint = document.getElementById('oceanHint');
       if (hint) hint.style.display = 'block';
     }
-  }, 300);
+  }, 350);
+}
+
+// ─────────────────────────────────────────
+// 🎁 스티커 보관함
+// ─────────────────────────────────────────
+// 보관함 뱃지 숫자 업데이트 (0개면 숨김)
+function updateStorageBadge() {
+  const badge = document.getElementById('storageBadge');
+  if (!badge) return;
+  const count = stickerStorage.length;
+  if (count > 0) {
+    badge.textContent = count;
+    badge.style.display = 'flex';
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+// 보관함 열기
+function openStorage() {
+  const modal = document.getElementById('storageModal');
+  const grid = document.getElementById('storageGrid');
+  const emptyMsg = document.getElementById('storageEmpty');
+  if (!modal || !grid) return;
+
+  grid.innerHTML = '';
+
+  if (stickerStorage.length === 0) {
+    emptyMsg.style.display = 'block';
+    grid.style.display = 'none';
+  } else {
+    emptyMsg.style.display = 'none';
+    grid.style.display = 'grid';
+
+    stickerStorage.forEach(stored => {
+      const item = SHOP_ITEMS.find(s => s.id === stored.itemId);
+      if (!item) return;
+
+      const cell = document.createElement('div');
+      cell.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:4px;padding:10px 6px;background:white;border-radius:14px;cursor:pointer;transition:all 0.2s;border:2px solid transparent;user-select:none;';
+      cell.onmouseover = () => { cell.style.borderColor = '#ffadad'; cell.style.transform = 'translateY(-2px)'; };
+      cell.onmouseout  = () => { cell.style.borderColor = 'transparent'; cell.style.transform = ''; };
+
+      // 이미지 또는 이모지
+      let visualHtml;
+      if (item.customImage) {
+        visualHtml = `<img src="${item.customImage}" style="width:42px;height:42px;object-fit:contain;pointer-events:none;" alt="${item.name}">`;
+      } else {
+        const emojiTxt = item.emoji === 'KUKU_IMG' ? '🐟' : item.emoji;
+        visualHtml = `<div style="font-size:2rem;line-height:1;pointer-events:none;">${emojiTxt}</div>`;
+      }
+      cell.innerHTML = visualHtml + `<div style="font-size:0.7rem;color:#666;text-align:center;pointer-events:none;">${item.name}</div>`;
+
+      // 더블클릭으로 바다에 다시 꺼내기
+      cell.addEventListener('dblclick', () => returnFromStorage(stored.instanceId));
+      // 모바일용 더블탭
+      let lastTap = 0;
+      cell.addEventListener('touchend', () => {
+        const now = Date.now();
+        if (now - lastTap < 350) returnFromStorage(stored.instanceId);
+        lastTap = now;
+      });
+
+      grid.appendChild(cell);
+    });
+  }
+
+  modal.style.display = 'flex';
+}
+
+function closeStorage() {
+  const modal = document.getElementById('storageModal');
+  if (modal) modal.style.display = 'none';
+}
+
+// 보관함에서 바다로 꺼내기
+function returnFromStorage(instanceId) {
+  const stored = stickerStorage.find(s => s.instanceId === instanceId);
+  if (!stored) return;
+  const item = SHOP_ITEMS.find(s => s.id === stored.itemId);
+  if (!item) return;
+
+  // ★ 확인 팝업
+  if (!confirm(`🌊 ${item.name}을(를) 바다로 꺼낼까?`)) {
+    return;
+  }
+
+  // 보관함에서 빼고 바다에 추가
+  stickerStorage = stickerStorage.filter(s => s.instanceId !== instanceId);
+  addStickerToOcean(item, null, true);  // 애니메이션과 함께 바다에 등장
+  updateStorageBadge();
+
+  // 보관함 모달 새로 그리기 (이 아이템 사라진 모습 반영)
+  openStorage();
 }
 </script>
 </body>
