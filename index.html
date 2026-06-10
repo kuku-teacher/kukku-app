@@ -2687,7 +2687,45 @@ async function syncFromServer() {
   // ③ 바다 꾸미기 배치 동기화 — 서버를 항상 진실로 사용
   // 시계 비교 방식은 기기 간 시계 차이로 데이터가 사라지거나 중복되는 문제가 있어서
   // "로그인 시 무조건 서버 데이터로 로컬을 맞춘다"는 단순하고 안정적인 방식으로 변경
+  //
+  // ★ 미동기화 복구 (중요!):
+  //   직전에 저장 실패한 로컬 바다 배치가 있으면, 서버 동기화 전에 먼저 올림.
+  //   이걸 안 하면 서버 데이터로 덮어쓰여서 학생이 산 스티커가 사라짐.
   try {
+    const oceanSynced = localStorage.getItem('kukku_ocean_synced');
+    const hasUnsyncedOcean = (oceanSynced === '0' && Array.isArray(oceanLayout) && oceanLayout.length > 0);
+
+    if (hasUnsyncedOcean) {
+      console.log('🔄 미동기화 바다 배치 ' + oceanLayout.length + '개 복구 시도');
+      const layoutData = oceanLayout.map(l => {
+        const item = SHOP_ITEMS.find(s => s.id === l.itemId);
+        return {
+          stickerId:   l.itemId,
+          stickerName: item ? item.name : '',
+          x:    l.leftPct,
+          y:    l.topPct,
+          size: 1
+        };
+      });
+      try {
+        const r = await gasRequest({
+          action: 'saveOceanLayout',
+          email: currentUser.email,
+          layoutData: layoutData
+        });
+        if (r && r.success) {
+          localStorage.setItem('kukku_ocean_synced', '1');
+          localStorage.setItem('kukku_ocean_sync_time', String(Date.now()));
+          console.log('✅ 미동기화 바다 복구 완료 → 이제 서버에 반영됨');
+        } else {
+          console.log('⚠️ 미동기화 복구 실패 — 다음 기회에 재시도');
+        }
+      } catch(e) {
+        console.log('[미동기화 복구 오류]', e);
+      }
+    }
+
+    // 이제 서버 데이터를 가져와서 로컬에 반영 (복구가 성공했으면 위에서 올린 것 포함됨)
     const oceanResult = await gasRequest({ action: 'loadOceanLayout', email: currentUser.email });
     if (oceanResult && oceanResult.success && Array.isArray(oceanResult.layout)) {
       // 서버 데이터를 그대로 로컬에 반영 (서버 = 유일한 진실)
@@ -2698,6 +2736,7 @@ async function syncFromServer() {
         instanceId: 's_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7)
       }));
       localStorage.setItem('kukku_ocean', JSON.stringify(oceanLayout));
+      localStorage.setItem('kukku_ocean_synced', '1');
       console.log('🌊 바다 배치: 서버 데이터로 동기화 (' + oceanLayout.length + '개)');
     } else {
       // 서버 응답 실패 시에만 로컬 데이터 유지 (오프라인 안전장치)
@@ -2906,9 +2945,11 @@ function saveDiary() {
     }, 400);
 
     // 바다 꾸미기 배치 — 실제로 변경됐을 때만 서버 동기화 (불필요한 호출 방지)
+    // ★ 보호 1: 재시도 (네트워크/락 충돌 등 일시적 실패 대응)
+    // ★ 보호 2: 마지막 동기화 시각 기록 (실패한 경우 표시)
     if (oceanChanged) {
       if (_saveOceanTimer) clearTimeout(_saveOceanTimer);
-      _saveOceanTimer = setTimeout(() => {
+      _saveOceanTimer = setTimeout(async () => {
         // 클라이언트 형식 → 서버 형식 변환
         const layoutData = oceanLayout.map(l => {
           const item = SHOP_ITEMS.find(s => s.id === l.itemId);
@@ -2920,13 +2961,40 @@ function saveDiary() {
             size: 1
           };
         });
-        gasRequest({
-          action: 'saveOceanLayout',
-          email: currentUser.email,
-          layoutData: layoutData
-        }).then(r => {
-          if (r && !r.success) console.log('[saveOceanLayout] 서버 저장 실패:', r.message);
-        }).catch(e => console.log('[saveOceanLayout] 네트워크 오류:', e));
+
+        // 저장 시도 함수 — 실패하면 최대 3번까지 다시 시도
+        const trySaveOcean = async (attempt) => {
+          attempt = attempt || 1;
+          try {
+            const r = await gasRequest({
+              action: 'saveOceanLayout',
+              email: currentUser.email,
+              layoutData: layoutData
+            });
+            if (r && r.success) {
+              // 저장 성공 — 동기화 완료 표시
+              localStorage.setItem('kukku_ocean_synced', '1');
+              localStorage.setItem('kukku_ocean_sync_time', String(Date.now()));
+              console.log('🌊 바다 배치 서버 저장 완료 (' + layoutData.length + '개)');
+              return true;
+            }
+            // success가 false → 재시도
+            throw new Error(r && r.message ? r.message : '바다 저장 실패');
+          } catch(e) {
+            console.log(`[saveOceanLayout] ${attempt}번째 저장 실패:`, e);
+            if (attempt < 3) {
+              // 1.5초 후 다시 시도
+              await new Promise(res => setTimeout(res, 1500));
+              return trySaveOcean(attempt + 1);
+            }
+            // 3번 다 실패 → 미동기화로 표시 (다음 로그인 시 복구 시도)
+            localStorage.setItem('kukku_ocean_synced', '0');
+            console.log('⚠️ 바다 배치 저장 3회 실패 — 다음 로그인 시 자동 복구 시도');
+            return false;
+          }
+        };
+
+        trySaveOcean(1);
       }, 700);
     }
   }
