@@ -1966,10 +1966,20 @@ function logoutUser() {
   <div style="background:linear-gradient(160deg,#fff8f0,#ffe8e0);border-radius:24px;padding:24px;max-width:480px;width:100%;max-height:80vh;overflow-y:auto;box-shadow:0 20px 60px rgba(255,140,80,0.3);border:3px solid #ffd6a5;">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
       <div style="font-size:1.3rem;font-weight:bold;color:#d35400;font-family:var(--font-title);">🎁 스티커 보관함</div>
-      <button onclick="closeStorage()" style="background:transparent;border:none;font-size:1.4rem;cursor:pointer;color:#888;">✕</button>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <button id="cleanupModeBtn" onclick="toggleCleanupMode()"
+          style="background:white;border:2px solid #ffd6a5;color:#d35400;border-radius:12px;padding:5px 12px;font-size:0.78rem;cursor:pointer;font-family:var(--font-title);transition:all 0.2s;">
+          🗑️ 정리하기
+        </button>
+        <button onclick="closeStorage()" style="background:transparent;border:none;font-size:1.4rem;cursor:pointer;color:#888;">✕</button>
+      </div>
     </div>
-    <div style="font-size:0.85rem;color:#a35a2a;margin-bottom:16px;line-height:1.5;">
+    <div id="storageHelpNormal" style="font-size:0.85rem;color:#a35a2a;margin-bottom:16px;line-height:1.5;">
       보관된 스티커를 <strong>더블클릭</strong>하면 바다로 꺼낼 수 있어요 🌊
+    </div>
+    <div id="storageHelpCleanup" style="display:none;font-size:0.85rem;color:#c0392b;margin-bottom:16px;line-height:1.5;background:#fff5f5;padding:10px 12px;border-radius:10px;border:1px solid #ffd6d6;">
+      🗑️ <strong>정리 모드</strong>예요. ✕ 버튼을 누르면 스티커가 <strong>완전히 삭제</strong>돼요.<br>
+      <span style="font-size:0.78rem;color:#888;">정리가 끝나면 다시 "정리하기" 버튼을 눌러 모드를 끌 수 있어요.</span>
     </div>
     <div id="storageGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(78px,1fr));gap:12px;padding:8px 0;"></div>
     <div id="storageEmpty" style="text-align:center;padding:40px 20px;color:#aaa;font-size:0.95rem;display:none;">
@@ -4907,16 +4917,22 @@ function renderShop() {
 }
 
 function buyItem(item) {
-  // ★ 이벤트 한정 스티커: 바다에 한 마리만 존재 (무한 클릭 방지)
+  // ★ 이벤트 한정 스티커: 한 마리만 존재 (무한 클릭 방지)
   if (item.eventOnly) {
     if (ownedItems.includes(item.id)) {
-      // 바다에 이미 같은 스티커가 있는지 확인
-      const alreadyInOcean = oceanLayout.some(l => l.itemId === item.id);
+      // ★ 바다 + 보관함 둘 다 확인 (한 마리 한정의 진짜 기준)
+      // 보관함만 만들었을 땐 바다에만 체크해서 → 보관함으로 옮긴 후 또 받기가 가능했음
+      const alreadyInOcean   = oceanLayout.some(l => l.itemId === item.id);
+      const alreadyInStorage = stickerStorage.some(s => s.itemId === item.id);
       if (alreadyInOcean) {
         showToast(`✨ ${item.name}은(는) 이미 바다에 있어! 바다에서 위치를 옮길 수 있어 💙`);
         return;
       }
-      // 바다에 없을 때만 새로 추가 (한 마리 한정)
+      if (alreadyInStorage) {
+        showToast(`🎁 ${item.name}은(는) 보관함에 있어! 보관함에서 다시 꺼낼 수 있어 💙`);
+        return;
+      }
+      // 바다에도 보관함에도 없을 때만 새로 추가 (한 마리 한정)
       addStickerToOcean(item, null, true);
       showToast(`🐶 ${item.name}이(가) 바다에 등장했어! ✨`);
     } else {
@@ -5165,12 +5181,21 @@ function updateStorageBadge() {
   }
 }
 
+// ★ 정리 모드 상태 (true면 ✕ 버튼이 보이고 클릭 시 삭제 가능)
+let storageCleanupMode = false;
+
 // 보관함 열기
 function openStorage() {
   const modal = document.getElementById('storageModal');
   const grid = document.getElementById('storageGrid');
   const emptyMsg = document.getElementById('storageEmpty');
   if (!modal || !grid) return;
+
+  // 보관함이 비었으면 정리 모드 자동 해제 (할 게 없으니)
+  if (stickerStorage.length === 0 && storageCleanupMode) {
+    storageCleanupMode = false;
+    refreshCleanupModeUI();
+  }
 
   grid.innerHTML = '';
 
@@ -5186,9 +5211,22 @@ function openStorage() {
       if (!item) return;
 
       const cell = document.createElement('div');
-      cell.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:4px;padding:10px 6px;background:white;border-radius:14px;cursor:pointer;transition:all 0.2s;border:2px solid transparent;user-select:none;';
+      cell.style.cssText = 'position:relative;display:flex;flex-direction:column;align-items:center;gap:4px;padding:10px 6px;background:white;border-radius:14px;cursor:pointer;transition:all 0.2s;border:2px solid transparent;user-select:none;';
       cell.onmouseover = () => { cell.style.borderColor = '#ffadad'; cell.style.transform = 'translateY(-2px)'; };
       cell.onmouseout  = () => { cell.style.borderColor = 'transparent'; cell.style.transform = ''; };
+
+      // ★ 정리 모드면 ✕ 삭제 버튼 추가 (우측 상단)
+      if (storageCleanupMode) {
+        const deleteBtn = document.createElement('button');
+        deleteBtn.textContent = '✕';
+        deleteBtn.title = '완전 삭제';
+        deleteBtn.style.cssText = 'position:absolute;top:-6px;right:-6px;width:24px;height:24px;border:none;background:#e74c3c;color:white;border-radius:50%;font-size:0.85rem;font-weight:bold;cursor:pointer;box-shadow:0 2px 6px rgba(231,76,60,0.4);z-index:5;line-height:1;padding:0;';
+        deleteBtn.onclick = (e) => {
+          e.stopPropagation();  // cell의 다른 이벤트 막기
+          deleteFromStorage(stored.instanceId);
+        };
+        cell.appendChild(deleteBtn);
+      }
 
       // 이미지 또는 이모지
       let visualHtml;
@@ -5198,17 +5236,26 @@ function openStorage() {
         const emojiTxt = item.emoji === 'KUKU_IMG' ? '🐟' : item.emoji;
         visualHtml = `<div style="font-size:2rem;line-height:1;pointer-events:none;">${emojiTxt}</div>`;
       }
-      cell.innerHTML = visualHtml + `<div style="font-size:0.7rem;color:#666;text-align:center;pointer-events:none;">${item.name}</div>`;
+      const innerDiv = document.createElement('div');
+      innerDiv.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:4px;width:100%;';
+      innerDiv.innerHTML = visualHtml + `<div style="font-size:0.7rem;color:#666;text-align:center;pointer-events:none;">${item.name}</div>`;
+      cell.appendChild(innerDiv);
 
-      // 더블클릭으로 바다에 다시 꺼내기
-      cell.addEventListener('dblclick', () => returnFromStorage(stored.instanceId));
-      // 모바일용 더블탭
-      let lastTap = 0;
-      cell.addEventListener('touchend', () => {
-        const now = Date.now();
-        if (now - lastTap < 350) returnFromStorage(stored.instanceId);
-        lastTap = now;
-      });
+      // ★ 정리 모드가 아닐 때만 더블클릭으로 꺼내기 가능
+      if (!storageCleanupMode) {
+        cell.addEventListener('dblclick', () => returnFromStorage(stored.instanceId));
+        // 모바일용 더블탭
+        let lastTap = 0;
+        cell.addEventListener('touchend', (e) => {
+          // 삭제 버튼 터치는 제외
+          if (e.target.tagName === 'BUTTON') return;
+          const now = Date.now();
+          if (now - lastTap < 350) returnFromStorage(stored.instanceId);
+          lastTap = now;
+        });
+      } else {
+        cell.style.cursor = 'default';  // 정리 모드일 땐 클릭 안 됨 표시
+      }
 
       grid.appendChild(cell);
     });
@@ -5217,9 +5264,95 @@ function openStorage() {
   modal.style.display = 'flex';
 }
 
+// ★ 정리 모드 토글
+function toggleCleanupMode() {
+  storageCleanupMode = !storageCleanupMode;
+  refreshCleanupModeUI();
+  openStorage();  // 모달 다시 그리기 (✕ 버튼 표시/숨김)
+}
+
+// 정리 모드 UI 갱신 (버튼 색깔, 안내 메시지)
+function refreshCleanupModeUI() {
+  const btn = document.getElementById('cleanupModeBtn');
+  const helpNormal = document.getElementById('storageHelpNormal');
+  const helpCleanup = document.getElementById('storageHelpCleanup');
+  if (!btn) return;
+
+  if (storageCleanupMode) {
+    btn.textContent = '✅ 완료';
+    btn.style.background = '#e74c3c';
+    btn.style.color = 'white';
+    btn.style.borderColor = '#e74c3c';
+    if (helpNormal)  helpNormal.style.display = 'none';
+    if (helpCleanup) helpCleanup.style.display = 'block';
+  } else {
+    btn.textContent = '🗑️ 정리하기';
+    btn.style.background = 'white';
+    btn.style.color = '#d35400';
+    btn.style.borderColor = '#ffd6a5';
+    if (helpNormal)  helpNormal.style.display = 'block';
+    if (helpCleanup) helpCleanup.style.display = 'none';
+  }
+}
+
+// ★ 보관함에서 완전 삭제 (보유 스티커에서도 제거)
+function deleteFromStorage(instanceId) {
+  const stored = stickerStorage.find(s => s.instanceId === instanceId);
+  if (!stored) return;
+  const item = SHOP_ITEMS.find(s => s.id === stored.itemId);
+  if (!item) return;
+
+  // ★ 같은 종류 스티커가 다른 곳(바다 or 보관함 다른 인스턴스)에 또 있는지 확인
+  // 다른 곳에 있으면 ownedItems에서는 제거하지 않음 (그 다른 인스턴스는 살아있어야 하니까)
+  const sameIdInOcean   = oceanLayout.some(l => l.itemId === stored.itemId);
+  const sameIdInStorage = stickerStorage.filter(s => s.instanceId !== instanceId)
+                                       .some(s => s.itemId === stored.itemId);
+  const isLastOne = !sameIdInOcean && !sameIdInStorage;
+
+  // ★ 확인 메시지 — 이벤트 한정은 강한 경고
+  let confirmMsg;
+  if (item.eventOnly && isLastOne) {
+    confirmMsg =
+      `⚠️ 정말 ${item.name}을(를) 버릴까?\n\n` +
+      `❗ 이 스티커는 이벤트 한정이라\n` +
+      `   한 번 버리면 다시 받을 수 없어!\n\n` +
+      `정말 영영 버릴까?`;
+  } else if (isLastOne && item.price > 0) {
+    confirmMsg =
+      `🗑️ ${item.name}을(를) 버릴까?\n\n` +
+      `다시 받으려면 🐚${item.price}개가 필요해.\n\n` +
+      `정말 버릴까?`;
+  } else if (isLastOne) {
+    confirmMsg = `🗑️ ${item.name}을(를) 버릴까?\n\n정말 버릴까?`;
+  } else {
+    // 같은 종류가 다른 곳에도 있음 — 이 인스턴스만 제거 (보유 유지)
+    confirmMsg = `🗑️ ${item.name} 하나를 보관함에서 버릴까?\n\n(다른 ${item.name}은 계속 가지고 있을 수 있어)`;
+  }
+
+  if (!confirm(confirmMsg)) return;
+
+  // 보관함에서 제거
+  stickerStorage = stickerStorage.filter(s => s.instanceId !== instanceId);
+
+  // ★ 마지막 하나였으면 → 보유 스티커에서도 제거 (완전 삭제)
+  if (isLastOne) {
+    ownedItems = ownedItems.filter(id => id !== stored.itemId);
+  }
+
+  saveDiary();
+  updateStorageBadge();
+  openStorage();  // 모달 다시 그리기
+
+  // 산호초 상점도 다시 그리기 (보유 표시 갱신)
+  if (typeof renderShop === 'function') renderShop();
+}
+
 function closeStorage() {
   const modal = document.getElementById('storageModal');
   if (modal) modal.style.display = 'none';
+  // 정리 모드는 닫을 때 자동 해제 (다음번 열 때는 일반 모드부터)
+  storageCleanupMode = false;
+  refreshCleanupModeUI();
 }
 
 // 보관함에서 바다로 꺼내기
