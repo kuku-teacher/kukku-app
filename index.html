@@ -4869,9 +4869,14 @@ function renderShop() {
   const streak = getStreakDays();
 
   sortedItems.forEach(item => {
-    // ★ 지난 이벤트 스티커(별빛 해마)는 받은 학생만 카드 보임.
+    // ★ 지난 이벤트 스티커는 받은 학생만 카드 보임.
     //   못 받은 학생에게는 카드 자체를 숨김 (새 이벤트와 헷갈리지 않도록).
+    //   단, 이벤트 당일에는 모두에게 보임 (자동 지급 실패 대비 안전장치).
+    const todayKr = (typeof getKoreaDate === 'function') ? getKoreaDate() : '';
     if (item.id === 'stardust_seahorse' && !ownedItems.includes('stardust_seahorse')) {
+      return;
+    }
+    if (item.id === 'singing_sunfish' && !ownedItems.includes('singing_sunfish') && todayKr !== EVENT_DATE) {
       return;
     }
 
