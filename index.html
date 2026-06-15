@@ -2794,6 +2794,57 @@ async function syncFromServer() {
     console.log('[loadOceanLayout] 오류 — 로컬 데이터 유지:', e);
   }
 
+  // ④ 스티커 보관함 동기화 — 서버를 진실로 사용 (무한 증식 버그 해결)
+  //
+  // ★ 미동기화 복구 (중요!):
+  //   직전에 저장 실패한 로컬 보관함이 있으면, 서버 동기화 전에 먼저 올림.
+  //   이걸 안 하면 서버 데이터로 덮어쓰여서 학생이 보관한 스티커가 사라짐.
+  try {
+    const storageSynced = localStorage.getItem('kukku_storage_synced');
+    const hasUnsyncedStorage = (storageSynced === '0' && Array.isArray(stickerStorage) && stickerStorage.length > 0);
+
+    if (hasUnsyncedStorage) {
+      console.log('🔄 미동기화 보관함 ' + stickerStorage.length + '개 복구 시도');
+      const storageDataForServer = stickerStorage.map(s => ({
+        itemId: s.itemId,
+        instanceId: s.instanceId
+      }));
+      try {
+        const r = await gasRequest({
+          action: 'saveStorage',
+          email: currentUser.email,
+          storageData: storageDataForServer
+        });
+        if (r && r.success) {
+          localStorage.setItem('kukku_storage_synced', '1');
+          localStorage.setItem('kukku_storage_sync_time', String(Date.now()));
+          console.log('✅ 미동기화 보관함 복구 완료');
+        } else {
+          console.log('⚠️ 미동기화 보관함 복구 실패 — 다음 기회에 재시도');
+        }
+      } catch(e) {
+        console.log('[보관함 미동기화 복구 오류]', e);
+      }
+    }
+
+    // 이제 서버 데이터를 가져와서 로컬에 반영
+    const storageResult = await gasRequest({ action: 'loadStorage', email: currentUser.email });
+    if (storageResult && storageResult.success && Array.isArray(storageResult.storage)) {
+      // 서버 데이터를 그대로 로컬에 반영 (서버 = 유일한 진실)
+      stickerStorage = storageResult.storage.map(s => ({
+        itemId: s.itemId,
+        instanceId: s.instanceId || ('s_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7))
+      }));
+      localStorage.setItem('kukku_storage', JSON.stringify(stickerStorage));
+      localStorage.setItem('kukku_storage_synced', '1');
+      console.log('🎁 보관함: 서버 데이터로 동기화 (' + stickerStorage.length + '개)');
+    } else {
+      console.log('🎁 보관함: 서버 응답 없음, 로컬 데이터 유지');
+    }
+  } catch(e) {
+    console.log('[loadStorage] 오류 — 로컬 데이터 유지:', e);
+  }
+
   updateStats();
   renderMandala();
   renderCalendar();
@@ -2967,12 +3018,19 @@ window.onload = async () => {
 // 디바운스 타이머 (④ 동시성 안전)
 let _saveStampsTimer = null;
 let _saveOceanTimer = null;
+let _saveStorageTimer = null;  // ★ 스티커 보관함 서버 저장 디바운스
 function saveDiary() {
   localStorage.setItem('kukku_diary', JSON.stringify(diary));
   localStorage.setItem('kukku_stamps', stamps);
   localStorage.setItem('kukku_owned', JSON.stringify(ownedItems));
-  // ★ 스티커 보관함 저장 (로컬만 — 서버 저장은 추후 안정성 보고 결정)
-  localStorage.setItem('kukku_storage', JSON.stringify(stickerStorage));
+
+  // ★ 스티커 보관함 — 변경 감지 (이전 저장본과 비교)
+  // 무한 증식 버그(2026-06-12)를 잡기 위해 서버 저장 추가
+  const storageJson = JSON.stringify(stickerStorage);
+  const prevStorageJson = localStorage.getItem('kukku_storage');
+  const storageChanged = (prevStorageJson !== storageJson);
+  localStorage.setItem('kukku_storage', storageJson);
+
   // 보관함 뱃지 자동 업데이트
   if (typeof updateStorageBadge === 'function') updateStorageBadge();
 
@@ -3048,6 +3106,48 @@ function saveDiary() {
         };
 
         trySaveOcean(1);
+      }, 700);
+    }
+
+    // ★ 스티커 보관함 — 변경됐을 때만 서버 동기화 (무한 증식 버그 해결)
+    // 보관함 인스턴스 정보 그대로 전송 (itemId + instanceId)
+    if (storageChanged) {
+      if (_saveStorageTimer) clearTimeout(_saveStorageTimer);
+      _saveStorageTimer = setTimeout(async () => {
+        const storageDataForServer = stickerStorage.map(s => ({
+          itemId: s.itemId,
+          instanceId: s.instanceId
+        }));
+
+        // 저장 시도 함수 — 실패하면 최대 3번까지 다시 시도
+        const trySaveStorage = async (attempt) => {
+          attempt = attempt || 1;
+          try {
+            const r = await gasRequest({
+              action: 'saveStorage',
+              email: currentUser.email,
+              storageData: storageDataForServer
+            });
+            if (r && r.success) {
+              localStorage.setItem('kukku_storage_synced', '1');
+              localStorage.setItem('kukku_storage_sync_time', String(Date.now()));
+              console.log('🎁 보관함 서버 저장 완료 (' + storageDataForServer.length + '개)');
+              return true;
+            }
+            throw new Error(r && r.message ? r.message : '보관함 저장 실패');
+          } catch(e) {
+            console.log(`[saveStorage] ${attempt}번째 저장 실패:`, e);
+            if (attempt < 3) {
+              await new Promise(res => setTimeout(res, 1500));
+              return trySaveStorage(attempt + 1);
+            }
+            localStorage.setItem('kukku_storage_synced', '0');
+            console.log('⚠️ 보관함 저장 3회 실패 — 다음 로그인 시 자동 복구 시도');
+            return false;
+          }
+        };
+
+        trySaveStorage(1);
       }, 700);
     }
   }
