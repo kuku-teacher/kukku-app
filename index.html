@@ -918,7 +918,7 @@ function isolateLocalDataForUser(email) {
     stamps = 0;
     ownedItems = [];
     oceanLayout = [];
-    stickerStorage = [];  // ★ 보관함 메모리도 초기화
+    stickerStorage = {};  // ★ 보관함 메모리도 초기화 (객체 형식)
   }
   // 현재 사용자 기록
   localStorage.setItem('kukku_last_email', email);
@@ -2521,7 +2521,30 @@ let oceanLayout = JSON.parse(localStorage.getItem('kukku_ocean') || '[]');
 // 보유 스티커(ownedItems)와 별개 — 보유는 한 적 있다는 기록이고,
 // 보관함은 "지금 바다에 안 두고 잠시 넣어둔 인스턴스"의 모음.
 // 형식: [{ itemId, instanceId }, ...]
-let stickerStorage = JSON.parse(localStorage.getItem('kukku_storage') || '[]');
+// ★ 스티커 보관함 — 단순 구조 (2026-06-15 무한 증식 버그 해결)
+// 구조: { 'singing_sunfish': 1, 'nemo': 2 } — itemId를 키로 개수만 저장
+// 이전엔 인스턴스ID로 추적했으나 복제 버그 발생 → 개수 관리로 단순화
+let stickerStorage = (function() {
+  const raw = localStorage.getItem('kukku_storage');
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    // ★ 마이그레이션: 옛 배열 형식 → 새 객체 형식
+    if (Array.isArray(parsed)) {
+      const obj = {};
+      parsed.forEach(item => {
+        if (item && item.itemId) {
+          obj[item.itemId] = (obj[item.itemId] || 0) + 1;
+        }
+      });
+      console.log('🔄 보관함 형식 자동 변환:', parsed.length, '개 →', Object.keys(obj).length, '종류');
+      return obj;
+    }
+    return parsed || {};
+  } catch(e) {
+    return {};
+  }
+})();
 let currentStep = 1;
 let selectedEmotion = null;
 let selectedColors = [];
@@ -2794,37 +2817,29 @@ async function syncFromServer() {
     console.log('[loadOceanLayout] 오류 — 로컬 데이터 유지:', e);
   }
 
-  // ④ 스티커 보관함 동기화 — 안전한 마이그레이션 로직 (2026-06-15)
+  // ④ 스티커 보관함 동기화 — 단순 구조 (2026-06-15)
   //
-  // ★ 동기화 정책 (학생 데이터 손실 방지가 최우선):
+  // ★ 새 구조: 보관함은 { itemId: count } 객체 (인스턴스ID 제거 → 복제 원천 차단)
   //
-  // [상황 A] 로컬 비어있음 + 서버 데이터 있음
-  //   → 다른 PC에서 사용한 학생, 또는 새 PC. 서버 데이터로 채움 ✅
-  //
-  // [상황 B] 로컬 비어있음 + 서버 비어있음
-  //   → 첫 사용자. 둘 다 빈 채로 유지 ✅
-  //
-  // [상황 C] 로컬 있음 + 서버 있음 (양쪽 다 데이터)
-  //   → 서버를 진실로 사용 (마지막 저장이 가장 최신).
-  //     "synced=0" 플래그가 있으면 로컬을 먼저 서버로 올린 뒤 다시 받음.
-  //
-  // [상황 D] 로컬 있음 + 서버 비어있음 (마이그레이션 또는 동기화 실패)
-  //   → ★ 절대 로컬을 지우면 안 됨!
-  //     로컬 데이터를 서버로 올림 (마이그레이션). 학생 보관함 보존.
-  //
-  // 이 정책은 학생 데이터 손실을 막기 위한 핵심 안전장치임.
+  // 동기화 정책 (학생 데이터 손실 방지가 최우선):
+  // [A] 로컬 비어있음 + 서버 데이터 있음 → 서버 데이터로 채움
+  // [B] 로컬 비어있음 + 서버 비어있음 → 둘 다 빈 채로 유지
+  // [C] 로컬 있음 + 서버 있음 → 서버 진실 사용
+  // [D] 로컬 있음 + 서버 비어있음 → 마이그레이션 (로컬을 서버로 올림)
   try {
+    const localCount = Object.keys(stickerStorage).length;
+
     // 1) 미동기화 복구 (저장 3회 실패 케이스)
     const storageSynced = localStorage.getItem('kukku_storage_synced');
-    const hasUnsyncedStorage = (storageSynced === '0' && Array.isArray(stickerStorage) && stickerStorage.length > 0);
+    const hasUnsyncedStorage = (storageSynced === '0' && localCount > 0);
 
     if (hasUnsyncedStorage) {
-      console.log('🔄 미동기화 보관함 ' + stickerStorage.length + '개 복구 시도');
+      console.log('🔄 미동기화 보관함 복구 시도');
       try {
         const r = await gasRequest({
           action: 'saveStorage',
           email: currentUser.email,
-          storageData: stickerStorage.map(s => ({ itemId: s.itemId, instanceId: s.instanceId }))
+          storageData: Object.assign({}, stickerStorage)
         });
         if (r && r.success) {
           localStorage.setItem('kukku_storage_synced', '1');
@@ -2841,40 +2856,47 @@ async function syncFromServer() {
 
     if (!storageResult || !storageResult.success) {
       // 서버 응답 자체가 실패 → 로컬 그대로 유지 (오프라인 안전장치)
-      console.log('🎁 보관함: 서버 응답 실패, 로컬 데이터 유지 (' + stickerStorage.length + '개)');
+      console.log('🎁 보관함: 서버 응답 실패, 로컬 데이터 유지');
     } else {
-      const serverStorage = Array.isArray(storageResult.storage) ? storageResult.storage : [];
-      const localCount = Array.isArray(stickerStorage) ? stickerStorage.length : 0;
-      const serverCount = serverStorage.length;
+      // ★ 서버 응답 정규화: 객체 또는 배열 모두 처리
+      let serverStorage = {};
+      const rawStorage = storageResult.storage;
+      if (Array.isArray(rawStorage)) {
+        // 옛 배열 형식 → 객체로 변환 (마이그레이션 시기 호환)
+        rawStorage.forEach(item => {
+          if (item && item.itemId) {
+            serverStorage[item.itemId] = (serverStorage[item.itemId] || 0) + 1;
+          }
+        });
+      } else if (rawStorage && typeof rawStorage === 'object') {
+        // 새 객체 형식 — 그대로
+        Object.entries(rawStorage).forEach(([id, count]) => {
+          const c = Number(count);
+          if (id && c > 0) serverStorage[id] = c;
+        });
+      }
+      const serverCount = Object.keys(serverStorage).length;
 
       if (serverCount > 0) {
-        // ─────────────────────────────────────────
         // 상황 A 또는 C: 서버에 데이터 있음 → 서버 진실 사용
-        // ─────────────────────────────────────────
-        stickerStorage = serverStorage.map(s => ({
-          itemId: s.itemId,
-          instanceId: s.instanceId || ('s_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7))
-        }));
+        stickerStorage = serverStorage;
         localStorage.setItem('kukku_storage', JSON.stringify(stickerStorage));
         localStorage.setItem('kukku_storage_synced', '1');
-        console.log('🎁 보관함: 서버 데이터로 동기화 (' + serverCount + '개)');
+        const total = Object.values(stickerStorage).reduce((s, n) => s + n, 0);
+        console.log('🎁 보관함: 서버 데이터로 동기화 (' + total + '개, ' + serverCount + '종류)');
       } else if (localCount > 0) {
-        // ─────────────────────────────────────────
-        // 상황 D: 로컬엔 있는데 서버는 비어있음 → ★ 마이그레이션!
-        // 학생 데이터 보존을 위해 로컬을 서버로 올림
-        // (이전 버전에서 로컬에만 저장하던 학생들 케어)
-        // ─────────────────────────────────────────
-        console.log('🔄 보관함 마이그레이션: 로컬 ' + localCount + '개 → 서버로 올림');
+        // 상황 D: 로컬엔 있는데 서버는 비어있음 → 마이그레이션!
+        console.log('🔄 보관함 마이그레이션: 로컬 → 서버로 올림');
         try {
           const r = await gasRequest({
             action: 'saveStorage',
             email: currentUser.email,
-            storageData: stickerStorage.map(s => ({ itemId: s.itemId, instanceId: s.instanceId }))
+            storageData: Object.assign({}, stickerStorage)
           });
           if (r && r.success) {
             localStorage.setItem('kukku_storage_synced', '1');
             localStorage.setItem('kukku_storage_sync_time', String(Date.now()));
-            console.log('✅ 마이그레이션 완료 — 보관함 ' + localCount + '개 서버에 안전 저장');
+            console.log('✅ 마이그레이션 완료 — 보관함 서버에 안전 저장');
           } else {
             console.log('⚠️ 마이그레이션 실패 — 로컬 유지, 다음 로그인 시 재시도');
             localStorage.setItem('kukku_storage_synced', '0');
@@ -3161,14 +3183,13 @@ function saveDiary() {
     }
 
     // ★ 스티커 보관함 — 변경됐을 때만 서버 동기화 (무한 증식 버그 해결)
-    // 보관함 인스턴스 정보 그대로 전송 (itemId + instanceId)
+    // ★ 새 구조: 보관함은 { itemId: count } 객체 — 객체 그대로 전송
     if (storageChanged) {
       if (_saveStorageTimer) clearTimeout(_saveStorageTimer);
       _saveStorageTimer = setTimeout(async () => {
-        const storageDataForServer = stickerStorage.map(s => ({
-          itemId: s.itemId,
-          instanceId: s.instanceId
-        }));
+        // 객체 그대로 보내거나 배열 형식으로 변환 (GAS는 둘 다 받음)
+        const storageDataForServer = Object.assign({}, stickerStorage);
+        const totalCount = Object.values(storageDataForServer).reduce((s, n) => s + (Number(n) || 0), 0);
 
         // 저장 시도 함수 — 실패하면 최대 3번까지 다시 시도
         const trySaveStorage = async (attempt) => {
@@ -3182,7 +3203,7 @@ function saveDiary() {
             if (r && r.success) {
               localStorage.setItem('kukku_storage_synced', '1');
               localStorage.setItem('kukku_storage_sync_time', String(Date.now()));
-              console.log('🎁 보관함 서버 저장 완료 (' + storageDataForServer.length + '개)');
+              console.log('🎁 보관함 서버 저장 완료 (' + totalCount + '개)');
               return true;
             }
             throw new Error(r && r.message ? r.message : '보관함 저장 실패');
@@ -5088,7 +5109,7 @@ function buyItem(item) {
       // ★ 바다 + 보관함 둘 다 확인 (한 마리 한정의 진짜 기준)
       // 보관함만 만들었을 땐 바다에만 체크해서 → 보관함으로 옮긴 후 또 받기가 가능했음
       const alreadyInOcean   = oceanLayout.some(l => l.itemId === item.id);
-      const alreadyInStorage = stickerStorage.some(s => s.itemId === item.id);
+      const alreadyInStorage = (Number(stickerStorage[item.id]) || 0) > 0;
       if (alreadyInOcean) {
         showToast(`✨ ${item.name}은(는) 이미 바다에 있어! 바다에서 위치를 옮길 수 있어 💙`);
         return;
@@ -5309,11 +5330,9 @@ function removeStickerFromOcean(instanceId, stickerEl) {
   }
 
   // 바다에서 빼서 보관함으로 이동 (영구 삭제 아님!)
+  // ★ 새 구조: 보관함은 { itemId: count } 객체. 같은 종류는 개수 +1
   oceanLayout = oceanLayout.filter(l => l.instanceId !== instanceId);
-  stickerStorage.push({
-    itemId: target.itemId,
-    instanceId: target.instanceId
-  });
+  stickerStorage[target.itemId] = (stickerStorage[target.itemId] || 0) + 1;
   saveDiary();
   updateStorageBadge();
 
@@ -5337,7 +5356,8 @@ function removeStickerFromOcean(instanceId, stickerEl) {
 function updateStorageBadge() {
   const badge = document.getElementById('storageBadge');
   if (!badge) return;
-  const count = stickerStorage.length;
+  // ★ 새 구조: 객체의 모든 개수 합산
+  const count = Object.values(stickerStorage).reduce((sum, n) => sum + (Number(n) || 0), 0);
   if (count > 0) {
     badge.textContent = count;
     badge.style.display = 'flex';
@@ -5356,23 +5376,29 @@ function openStorage() {
   const emptyMsg = document.getElementById('storageEmpty');
   if (!modal || !grid) return;
 
+  // 보관함 전체 개수 (객체의 모든 값 합)
+  const totalCount = Object.values(stickerStorage).reduce((sum, n) => sum + (Number(n) || 0), 0);
+
   // 보관함이 비었으면 정리 모드 자동 해제 (할 게 없으니)
-  if (stickerStorage.length === 0 && storageCleanupMode) {
+  if (totalCount === 0 && storageCleanupMode) {
     storageCleanupMode = false;
     refreshCleanupModeUI();
   }
 
   grid.innerHTML = '';
 
-  if (stickerStorage.length === 0) {
+  if (totalCount === 0) {
     emptyMsg.style.display = 'block';
     grid.style.display = 'none';
   } else {
     emptyMsg.style.display = 'none';
     grid.style.display = 'grid';
 
-    stickerStorage.forEach(stored => {
-      const item = SHOP_ITEMS.find(s => s.id === stored.itemId);
+    // ★ 새 구조: { itemId: count } 객체를 itemId별로 카드 1개씩 그림
+    //   같은 종류 N마리면 카드에 "x N" 배지 표시
+    Object.entries(stickerStorage).forEach(([itemId, count]) => {
+      if (!count || count <= 0) return;
+      const item = SHOP_ITEMS.find(s => s.id === itemId);
       if (!item) return;
 
       const cell = document.createElement('div');
@@ -5384,13 +5410,21 @@ function openStorage() {
       if (storageCleanupMode) {
         const deleteBtn = document.createElement('button');
         deleteBtn.textContent = '✕';
-        deleteBtn.title = '완전 삭제';
+        deleteBtn.title = '한 마리 삭제';
         deleteBtn.style.cssText = 'position:absolute;top:-6px;right:-6px;width:24px;height:24px;border:none;background:#e74c3c;color:white;border-radius:50%;font-size:0.85rem;font-weight:bold;cursor:pointer;box-shadow:0 2px 6px rgba(231,76,60,0.4);z-index:5;line-height:1;padding:0;';
         deleteBtn.onclick = (e) => {
-          e.stopPropagation();  // cell의 다른 이벤트 막기
-          deleteFromStorage(stored.instanceId);
+          e.stopPropagation();
+          deleteFromStorage(itemId);
         };
         cell.appendChild(deleteBtn);
+      }
+
+      // ★ 같은 종류 여러 마리면 좌측 상단에 개수 배지
+      if (count > 1) {
+        const countBadge = document.createElement('div');
+        countBadge.textContent = '×' + count;
+        countBadge.style.cssText = 'position:absolute;top:-6px;left:-6px;min-width:24px;height:22px;padding:0 6px;background:#5bb8d8;color:white;border-radius:11px;font-size:0.8rem;font-weight:bold;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(91,184,216,0.4);z-index:4;';
+        cell.appendChild(countBadge);
       }
 
       // 이미지 또는 이모지
@@ -5408,18 +5442,17 @@ function openStorage() {
 
       // ★ 정리 모드가 아닐 때만 더블클릭으로 꺼내기 가능
       if (!storageCleanupMode) {
-        cell.addEventListener('dblclick', () => returnFromStorage(stored.instanceId));
+        cell.addEventListener('dblclick', () => returnFromStorage(itemId));
         // 모바일용 더블탭
         let lastTap = 0;
         cell.addEventListener('touchend', (e) => {
-          // 삭제 버튼 터치는 제외
           if (e.target.tagName === 'BUTTON') return;
           const now = Date.now();
-          if (now - lastTap < 350) returnFromStorage(stored.instanceId);
+          if (now - lastTap < 350) returnFromStorage(itemId);
           lastTap = now;
         });
       } else {
-        cell.style.cursor = 'default';  // 정리 모드일 땐 클릭 안 됨 표시
+        cell.style.cursor = 'default';
       }
 
       grid.appendChild(cell);
@@ -5461,18 +5494,17 @@ function refreshCleanupModeUI() {
 }
 
 // ★ 보관함에서 완전 삭제 (보유 스티커에서도 제거)
-function deleteFromStorage(instanceId) {
-  const stored = stickerStorage.find(s => s.instanceId === instanceId);
-  if (!stored) return;
-  const item = SHOP_ITEMS.find(s => s.id === stored.itemId);
+function deleteFromStorage(itemId) {
+  const count = stickerStorage[itemId];
+  if (!count || count <= 0) return;
+  const item = SHOP_ITEMS.find(s => s.id === itemId);
   if (!item) return;
 
-  // ★ 같은 종류 스티커가 다른 곳(바다 or 보관함 다른 인스턴스)에 또 있는지 확인
-  // 다른 곳에 있으면 ownedItems에서는 제거하지 않음 (그 다른 인스턴스는 살아있어야 하니까)
-  const sameIdInOcean   = oceanLayout.some(l => l.itemId === stored.itemId);
-  const sameIdInStorage = stickerStorage.filter(s => s.instanceId !== instanceId)
-                                       .some(s => s.itemId === stored.itemId);
-  const isLastOne = !sameIdInOcean && !sameIdInStorage;
+  // ★ 같은 종류 스티커가 다른 곳(바다 or 보관함 다른 마리)에 또 있는지 확인
+  const sameIdInOcean = oceanLayout.some(l => l.itemId === itemId);
+  // 보관함에 같은 종류가 2마리 이상이면, 1마리 빼도 1마리 이상 남음
+  const remainingInStorage = count - 1;
+  const isLastOne = !sameIdInOcean && remainingInStorage === 0;
 
   // ★ 확인 메시지 — 이벤트 한정은 강한 경고
   let confirmMsg;
@@ -5490,18 +5522,22 @@ function deleteFromStorage(instanceId) {
   } else if (isLastOne) {
     confirmMsg = `🗑️ ${item.name}을(를) 버릴까?\n\n정말 버릴까?`;
   } else {
-    // 같은 종류가 다른 곳에도 있음 — 이 인스턴스만 제거 (보유 유지)
+    // 같은 종류가 다른 곳에도 있음 — 이 하나만 제거 (보유 유지)
     confirmMsg = `🗑️ ${item.name} 하나를 보관함에서 버릴까?\n\n(다른 ${item.name}은 계속 가지고 있을 수 있어)`;
   }
 
   if (!confirm(confirmMsg)) return;
 
-  // 보관함에서 제거
-  stickerStorage = stickerStorage.filter(s => s.instanceId !== instanceId);
+  // ★ 보관함에서 1마리 빼기 (개수만 -1, 0이 되면 키 삭제)
+  if (remainingInStorage > 0) {
+    stickerStorage[itemId] = remainingInStorage;
+  } else {
+    delete stickerStorage[itemId];
+  }
 
   // ★ 마지막 하나였으면 → 보유 스티커에서도 제거 (완전 삭제)
   if (isLastOne) {
-    ownedItems = ownedItems.filter(id => id !== stored.itemId);
+    ownedItems = ownedItems.filter(id => id !== itemId);
   }
 
   saveDiary();
@@ -5520,11 +5556,11 @@ function closeStorage() {
   refreshCleanupModeUI();
 }
 
-// 보관함에서 바다로 꺼내기
-function returnFromStorage(instanceId) {
-  const stored = stickerStorage.find(s => s.instanceId === instanceId);
-  if (!stored) return;
-  const item = SHOP_ITEMS.find(s => s.id === stored.itemId);
+// 보관함에서 바다로 꺼내기 (★ itemId로 받음 — 새 구조)
+function returnFromStorage(itemId) {
+  const count = stickerStorage[itemId];
+  if (!count || count <= 0) return;
+  const item = SHOP_ITEMS.find(s => s.id === itemId);
   if (!item) return;
 
   // ★ 확인 팝업
@@ -5532,9 +5568,14 @@ function returnFromStorage(instanceId) {
     return;
   }
 
-  // 보관함에서 빼고 바다에 추가
-  stickerStorage = stickerStorage.filter(s => s.instanceId !== instanceId);
+  // ★ 보관함에서 1마리 빼기 (개수 -1, 0이 되면 키 삭제)
+  if (count - 1 > 0) {
+    stickerStorage[itemId] = count - 1;
+  } else {
+    delete stickerStorage[itemId];
+  }
   addStickerToOcean(item, null, true);  // 애니메이션과 함께 바다에 등장
+  // saveDiary는 addStickerToOcean 안에서 호출됨 (그 안에서 보관함 변경도 같이 저장됨)
   updateStorageBadge();
 
   // 보관함 모달 새로 그리기 (이 아이템 사라진 모습 반영)
